@@ -71,7 +71,7 @@ internal class Program
             }else {
                 if (onlinetime.Value.AddSeconds(5) > DateTime.Now) {
                     return "Online";
-                }else {
+                }else { //Return last online
                     return datetostring(onlinetime.Value);
                 }
             }
@@ -101,8 +101,8 @@ internal class Program
         public string name = "";
         public string picture = "";
         public string info = "";
-        public string owner = "";
-        public string time = "";
+        public string owner = ""; //The creator, not the current one
+        public string time = ""; //Creation time
         public Dictionary<string, groupMember> members = new();
         public Dictionary<string, groupRole> roles = new();
         public List<string> bannedMembers = new();
@@ -125,33 +125,33 @@ internal class Program
             if (members.ContainsKey(uid)) { // To not mess stuff up
                 return true;
             }
-            if (!roles.ContainsKey(role)) {
+            if (!roles.ContainsKey(role)) { // Again, prevent some mess
                 return false;
             }
-            if (bannedMembers.Contains(uid)) {
+            if (bannedMembers.Contains(uid)) { // Block banned users
                 return false;
             }
-            List<chatItem>? clist = GetUserChats(uid);
+            List<chatItem>? clist = GetUserChats(uid); // Get chats list of user
             if (clist == null) {
                 return false; //user doesn't exist
             }
-            members[uid] = new() {
+            members[uid] = new() { // Add the member! Say hi!!
                 user = uid,
                 role = role,
                 jointime = datetostring(DateTime.Now)
             };
-            chatItem g = new() {
+            chatItem g = new() { // New chats list item
                 group = groupID,
                 type = "group",
                 chatid = groupID
             };
-            addToChats(clist,g);
-            saveUserChats(uid,clist);
-            return true;
+            addToChats(clist,g); //Add to their chats list
+            saveUserChats(uid,clist); //Save their chats list
+            return true; //Success!!
         }
         public enum groupAction {
-            Kick,
-            Ban,
+            Kick, //TODO
+            Ban, //TODO
             EditUser,
             EditGroup
         }
@@ -168,8 +168,10 @@ internal class Program
             if (!contains || u == null) { // Doesn't exist? block
                 return false;
             }
-            
+
+            // Get the role
             groupRole role = roles[u.role];
+            //Check what the role can do depending on the request.
             if (action == groupAction.EditUser) return role.AllowEditingUsers;
             if (action == groupAction.EditGroup) return role.AllowEditingSettings;
             if (action == groupAction.Kick) return role.AllowKicking;
@@ -222,7 +224,7 @@ internal class Program
         public string sender = "";
         public string time = "";
     }
-    class messageEmojiReactions:Dictionary<string,messageReaction> {}
+    class messageEmojiReactions:Dictionary<string,messageReaction> {} //Single reaction
 
     class messageReactions:Dictionary<string,messageEmojiReactions> { // All reactions
         public void update() {
@@ -273,12 +275,12 @@ internal class Program
             if (forwardedfrom != null) {
                 forwardedname = profileShort.fromProfile(GetUserProfile(forwardedfrom)).name;
             }
-            if (files != null) {
+            if (files != null) { //Group file to types.
                 if (gVideos == null) gVideos = new();
                 if (gImages == null) gImages = new();
                 if (gFiles == null) gFiles = new();
                 foreach (string fi in files) {
-                    string file = fi.Replace("%SERVER%getmedia?file=","data/upload/");
+                    string file = fi.Replace("%SERVER%getmedia?file=","data/upload/"); //Get path
                     if (File.Exists(file)) {
                         fileUpload? f = JsonConvert.DeserializeObject<fileUpload>(File.ReadAllText(file));
                         if (f != null) {
@@ -666,10 +668,10 @@ internal class Program
         return cred.userID;
     }
 
-    static List<chatItem>? GetUserChats(string uid) {
-        if (userChatsCache.ContainsKey(uid)) {
+    static List<chatItem>? GetUserChats(string uid) { // Get chats list
+        if (userChatsCache.ContainsKey(uid)) { // Use cache
             return userChatsCache[uid];
-        }else {
+        }else { //Load it from file
             if (File.Exists("data/user/" + uid + "/chatslist")) {
                 List<chatItem>? uc = JsonConvert.DeserializeObject<List<chatItem>>(File.ReadAllText("data/user/" + uid + "/chatslist"));
                 if (uc != null) {
@@ -685,19 +687,18 @@ internal class Program
         return null;
     }
 
-    static void addToChats(List<chatItem> list,chatItem item) {
-        foreach (var i in list) {
+    static void addToChats(List<chatItem> list,chatItem item) { //Add to chats list
+        foreach (var i in list) { //Check if it doesn't exist
             if (i.type == "group") {
                 if (i.group == item.group) return;
             }else if (i.type == "user") {
                 if (i.user == item.user) return;
             }
-            
         }
         list.Add(item);
     }
 
-    static void saveUserChats(string uid, List<chatItem> list) {
+    static void saveUserChats(string uid, List<chatItem> list) { //Chats list
         userChatsCache[uid] = list;
         File.WriteAllText("data/user/" + uid + "/chatslist", JsonConvert.SerializeObject(list));
     }
@@ -718,10 +719,11 @@ internal class Program
                 string[] spl = context.Request.Url.ToString().Split("/");
                 string url = spl[spl.Length - 1];
                 bool writeRes = true;
+                //Added these so web client can access it
                 context.Response.AddHeader("Access-Control-Allow-Headers", "*");
                 context.Response.AddHeader("Access-Control-Allow-Methods", "*");
                 context.Response.AddHeader("Access-Control-Allow-Origin", "*");
-                //Console.WriteLine(url);
+                //Console.WriteLine(url); //debugging
                 try {
                     if (url == "signup") {
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
@@ -896,7 +898,7 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
-                    }else if (url == "updateuser") {
+                    }else if (url == "updateuser") { //User profile edit
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("token")) {
@@ -1128,7 +1130,7 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
-                    }else if (url == "sendreaction") {
+                    }else if (url == "sendreaction") { //More like a toggle
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
                         if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgid") && a.ContainsKey("reaction") && (a["reaction"].ToString() ?? "") != "") {
@@ -1251,7 +1253,7 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
-                    }else if (url == "getupdates") {
+                    }else if (url == "getupdates") { //Chat updates
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("token") && a.ContainsKey("id")) {
@@ -1277,7 +1279,7 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
-                    }else if (url == "upload" && context.Request.HttpMethod.ToLower() == "post") {
+                    }else if (url == "upload" && context.Request.HttpMethod.ToLower() == "post") { //post only because browsers want OPTIONS request which would fail.
                         if (context.Request.Headers["token"] != null) {
                             string? uid = GetUIDFromToken(context.Request.Headers["token"] ?? "");
                             if (uid != null) {
@@ -1343,7 +1345,7 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
-                    }else if (url.StartsWith("getmedia")) {
+                    }else if (url.StartsWith("getmedia")) { //Needs improvement
                         if (context.Request.QueryString["file"] != null) {
                             string file = context.Request.QueryString["file"] ?? "";
                             if (File.Exists("data/upload/" + file)) {
@@ -1400,7 +1402,7 @@ internal class Program
                                         info = a["info"].Trim(),
                                         owner = uid,
                                         time = datetostring(DateTime.Now),
-                                        roles = new() {
+                                        roles = new() { //Default roles
                                             ["Owner"] = new groupRole() {
                                                 AdminOrder = 0,
                                                 AllowBanning = true,
@@ -1490,7 +1492,7 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
-                    }else if (url == "getgroupusers" || url == "getgroupmembers") {
+                    }else if (url == "getgroupusers" || url == "getgroupmembers") { //getgroupmembers is new name
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("groupid")) {
@@ -1505,7 +1507,7 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
-                    }else if (url == "getgroupuserscount" || url == "getgroupmemberscount") {
+                    }else if (url == "getgroupuserscount" || url == "getgroupmemberscount") { //getgroupmemberscount is new name
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("groupid")) {
@@ -1608,7 +1610,7 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
-                    }else if (url == "edituser") {
+                    }else if (url == "edituser") { //Group role edit
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid") && a.ContainsKey("role")) {
@@ -1646,7 +1648,7 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
-                    }else {
+                    }else { //Ping!!!!
                         res = "Pong!";
                     }
                 }catch (Exception e) {
@@ -1654,7 +1656,7 @@ internal class Program
                     res = e.ToString();
                     Console.WriteLine(e.ToString());
                 }
-                if (writeRes) {
+                if (writeRes) { //Only use this if api wants to (unlike upload and getmedia for example)
                     context.Response.StatusCode = statuscode;
                     context.Response.ContentType = "text/json";
                     byte[] bts = Encoding.UTF8.GetBytes(res);
@@ -1663,7 +1665,7 @@ internal class Program
                     context.Response.Close(); 
                 }
                 //Console.WriteLine("Respone given to a request.");
-                respond();
+                respond(); // Restart it for another request
             }
         });
     }
@@ -1671,26 +1673,35 @@ internal class Program
     static void saveData() {
         Console.WriteLine("Saving Data...");
         Console.WriteLine("Saving Chats...");
-        foreach (var c in chatsCache) {
+        foreach (var c in chatsCache) { // Save chats in memory to files
             Console.WriteLine("Saving " + c.Key);
             c.Value.saveChat();
         }
     }
     static void Main(string[] args)
     {
+        JsonConvert.DefaultSettings = () => new JsonSerializerSettings
+        {
+            NullValueHandling = NullValueHandling.Ignore //This is the main reason I was used null.
+        };
+
         Console.WriteLine("Pamukky V3 Server C# REWRITE");
+        //Create save folders
         Directory.CreateDirectory("data");
         Directory.CreateDirectory("data/user");
         Directory.CreateDirectory("data/auth");
         Directory.CreateDirectory("data/chat");
         Directory.CreateDirectory("data/upload");
         Directory.CreateDirectory("data/group");
+        // Start the server
         _httpListener.Prefixes.Add(serverurl);
         _httpListener.Start();
         Console.WriteLine("Server started. " + serverurl);
+        // Start responding for server
         respond();
         Console.WriteLine("Press any key to exit.");
         Console.Read();
+        // After user wants to exit, save "cached" data
         saveData();
     }
 }
