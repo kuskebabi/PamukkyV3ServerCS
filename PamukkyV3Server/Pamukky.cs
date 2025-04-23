@@ -22,7 +22,7 @@ internal class Program
 {
     public const string datetimeFormat = "MM dd yyyy, HH:mm zzz";
     static HttpListener _httpListener = new HttpListener();
-    public static string serverurl = "http://*:8080/";
+    public static string serverurl = "http://*:4268/";
 
     static Dictionary<string, loginCred> loginCredCache = new();
     static Dictionary<string, userProfile> userProfileCache = new();
@@ -985,7 +985,7 @@ internal class Program
                                 foreach (string key in usernotifies.Keys) {
                                     keys.Add(key);
                                 }
-                                Task.Delay(3000).ContinueWith((task) => { //remove notifications after delay so all clients can see it before it's too late. SSSOOOOBBB
+                                Task.Delay(5000).ContinueWith((task) => { //remove notifications after delay so all clients can see it before it's too late. SSSOOOOBBB
                                     foreach (string key in keys) {
                                         usernotifies.Remove(key);
                                     }
@@ -1678,12 +1678,25 @@ internal class Program
             c.Value.saveChat();
         }
     }
+
+    static void autoSaveTick() {
+        Task.Delay(300000).ContinueWith((task) => { //save after 5 mins and recall
+            saveData();
+            autoSaveTick();
+        });
+    }
+
     static void Main(string[] args)
     {
         JsonConvert.DefaultSettings = () => new JsonSerializerSettings
         {
             NullValueHandling = NullValueHandling.Ignore //This is the main reason I was used null.
         };
+
+        if (args.Length > 0) {
+            serverurl = "http://*:" + args[0] +"/";
+        }
+
 
         Console.WriteLine("Pamukky V3 Server C# REWRITE");
         //Create save folders
@@ -1700,6 +1713,7 @@ internal class Program
         // Start responding for server
         respond();
         Console.WriteLine("Press any key to exit.");
+        autoSaveTick(); // Start the autosave ticker
         Console.Read();
         // After user wants to exit, save "cached" data
         saveData();
