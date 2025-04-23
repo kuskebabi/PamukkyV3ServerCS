@@ -4,6 +4,10 @@ https://pamukky.netlify.app/v3
 Rewritten version of [PamukkyV3ServerNode](https://github.com/HAKANKOKCU/PamukkyV3ServerNode). Why? Javascript kinda sucks and the code was messy.
 
 In this rewrite, I made almost everything classes. So it should be better
+# How to run?
+- Install dotnet
+- cd to the folder which has .csproj
+- `dotnet run [-- "port"]` ( [] is optional, port is a number)
 
 # Status
 I think it's usable, but expect some bugs.
