@@ -7,7 +7,7 @@ In this rewrite, I made almost everything classes. So it should be better
 # How to run?
 - Install dotnet
 - cd to the folder which has .csproj
-- `dotnet run [-- "port"]` ( [] is optional, port is a number)
+- `dotnet run [-- "port" "port for https"]` ( [] is optional, port is a number)
 
 # Status
 I think it's usable, but expect some bugs.
