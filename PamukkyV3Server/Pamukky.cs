@@ -22,8 +22,6 @@ internal class Program
 {
     public const string datetimeFormat = "MM dd yyyy, HH:mm zzz";
     static HttpListener _httpListener = new HttpListener();
-    public static string serverurl = "http://*:4268/";
-
     static Dictionary<string, loginCred> loginCredCache = new();
     static Dictionary<string, userProfile> userProfileCache = new();
     static Dictionary<string, List<chatItem>> userChatsCache = new();
@@ -338,7 +336,7 @@ internal class Program
                 foreach (string key in updates[name].Keys) {
                     keys.Add(key);
                 }
-                Task.Delay(3000).ContinueWith((task) => { //remove updater keys after delay so all clients can see it before it gets kaboom
+                Task.Delay(5000).ContinueWith((task) => { //remove updater keys after delay so all clients can see it before it gets kaboom
                     foreach (string key in keys) {
                         updates[name].Remove(key);
                     }
@@ -985,7 +983,7 @@ internal class Program
                                 foreach (string key in usernotifies.Keys) {
                                     keys.Add(key);
                                 }
-                                Task.Delay(5000).ContinueWith((task) => { //remove notifications after delay so all clients can see it before it's too late. SSSOOOOBBB
+                                Task.Delay(10000).ContinueWith((task) => { //remove notifications after delay so all clients can see it before it's too late. SSSOOOOBBB
                                     foreach (string key in keys) {
                                         usernotifies.Remove(key);
                                     }
@@ -1693,10 +1691,15 @@ internal class Program
             NullValueHandling = NullValueHandling.Ignore //This is the main reason I was used null.
         };
 
-        if (args.Length > 0) {
-            serverurl = "http://*:" + args[0] +"/";
-        }
+        string HTTPport = "4268";
+        string HTTPSport = "8443";
 
+        if (args.Length > 0) { // Custom port
+            HTTPport = args[0];
+            if (args.Length > 1) { // Custom https port
+                HTTPSport = args[1];
+            }
+        }
 
         Console.WriteLine("Pamukky V3 Server C# REWRITE");
         //Create save folders
@@ -1707,9 +1710,10 @@ internal class Program
         Directory.CreateDirectory("data/upload");
         Directory.CreateDirectory("data/group");
         // Start the server
-        _httpListener.Prefixes.Add(serverurl);
+        _httpListener.Prefixes.Add("http://*:" + HTTPport + "/"); //http prefix
+        _httpListener.Prefixes.Add("https://*:" + HTTPSport + "/"); //https prefix
         _httpListener.Start();
-        Console.WriteLine("Server started. " + serverurl);
+        Console.WriteLine("Server started. On ports " + HTTPport + " and " + HTTPSport);
         // Start responding for server
         respond();
         Console.WriteLine("Press any key to exit.");
