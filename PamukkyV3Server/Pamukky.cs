@@ -77,7 +77,7 @@ internal class Program
         }
     }
 
-    class profileShort { //Short version for userProfile for messages and etc.
+    class profileShort { //Short version for userProfile.
         public string name = "User";
         public string picture = "";
         public static profileShort fromProfile(userProfile? profile) {
@@ -200,12 +200,12 @@ internal class Program
     class groupRole {
         public int AdminOrder = 0;
         public bool AllowMessageDeleting = true;
-		public bool AllowEditingSettings = true;
-		public bool AllowKicking = true;
-		public bool AllowBanning = true;
-		public bool AllowSending = true;
-		public bool AllowEditingUsers = true;
-		public bool AllowSendingReactions = true;
+        public bool AllowEditingSettings = true;
+        public bool AllowKicking = true;
+        public bool AllowBanning = true;
+        public bool AllowSending = true;
+        public bool AllowEditingUsers = true;
+        public bool AllowSendingReactions = true;
     }
 
     class chatMessage { // Chat message.
@@ -254,13 +254,13 @@ internal class Program
     }
 
     class chatMessageFormatted:chatMessage { // Chat message formatted for client sending.
-        public profileShort? senderuser;
+        //public profileShort? senderuser; REMOVED. Data waste.
         public string? replymsgcontent;
         public string? replymsgsender;
         public List<chatFile>? gImages;
         public List<chatFile>? gVideos;
         public List<chatFile>? gFiles;
-        public string? forwardedname;
+        //public string? forwardedname; REMOVED. Data waste.
         public chatMessageFormatted(chatMessage msg) {
             sender = msg.sender;
             content = msg.content;
@@ -269,10 +269,10 @@ internal class Program
             files = msg.files;
             reactions = msg.reactions;
             forwardedfrom = msg.forwardedfrom;
-            senderuser = profileShort.fromProfile(GetUserProfile(sender));
-            if (forwardedfrom != null) {
-                forwardedname = profileShort.fromProfile(GetUserProfile(forwardedfrom)).name;
-            }
+            //senderuser = profileShort.fromProfile(GetUserProfile(sender));
+            //if (forwardedfrom != null) {
+            //    forwardedname = profileShort.fromProfile(GetUserProfile(forwardedfrom)).name;
+            //}
             if (files != null) { //Group file to types.
                 if (gVideos == null) gVideos = new();
                 if (gImages == null) gImages = new();
@@ -301,7 +301,7 @@ internal class Program
 
         public Dictionary<string,object?> toDictionary() {
             Dictionary<string,object?> d = new();
-            d["senderuser"] = senderuser;
+            //d["senderuser"] = senderuser;
             d["replymsgcontent"] = replymsgcontent;
             d["replymsgsender"] = replymsgsender;
             d["gImages"] = gImages;
@@ -313,7 +313,7 @@ internal class Program
             d["files"] = files;
             d["reactions"] = reactions;
             d["forwardedfrom"] = forwardedfrom;
-            d["forwardedname"] = forwardedname;
+            //d["forwardedname"] = forwardedname;
             return d;
         }
     }
@@ -354,9 +354,9 @@ internal class Program
                 if (formatted.replymsgid != null) {
                     if (ContainsKey(formatted.replymsgid)) {
                         chatMessageFormatted? innerformatted = formatMessage(formatted.replymsgid);
-                        if (innerformatted != null && innerformatted.senderuser != null) {
+                        if (innerformatted != null) { //The senderuser stuff was removed.
                             formatted.replymsgcontent = innerformatted.content;
-                            formatted.replymsgsender = innerformatted.senderuser.name;
+                            formatted.replymsgsender = innerformatted.sender;
                         }
                     }
                 }
@@ -410,7 +410,7 @@ internal class Program
                     if (msg.sender != member)
                     notifications.Get(member).Add(id,
                         new userNotification() {
-                            user = f.senderuser,
+                            user = profileShort.fromProfile(GetUserProfile(f.sender)), //Probably would stay like this
                             content = msg.content,
                             chatid = chatid
                         }
@@ -950,13 +950,13 @@ internal class Program
                                 List<chatItem>? chats = GetUserChats(uid);
                                 if (chats != null) {
                                     foreach (chatItem item in chats) { //Format chats for clients
-                                        if (item.type == "user") { //Info
+                                        /*if (item.type == "user") { //Info
                                             var p = GetUserProfile(item.user ?? "");
                                             item.info = profileShort.fromProfile(p);
                                         }else if (item.type == "group") {
                                             var p = Group.get(item.group ?? "");
                                             item.info = profileShort.fromGroup(p);
-                                        }
+                                        }*/
 
                                         Chat? chat = Chat.getChat(item.chatid);
                                         if (chat != null) {
@@ -1076,32 +1076,38 @@ internal class Program
                     }else if (url == "sendmessage") {
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("content") && (a["content"].ToString() ?? "") != "") {
-                            string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
-                            if (uid != null) {
-                                Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
-                                if (chat != null) {
-                                    if (chat.canDo(uid,Chat.chatAction.Send)) {
-                                        chatMessage msg = new() {
-                                            sender = uid,
-                                            content = (a["content"].ToString() ?? "").Trim(),
-                                            replymsgid = a.ContainsKey("replymsg") ? a["replymsg"].ToString() : null,
-                                            files = a.ContainsKey("files") && (a["files"] is JArray) ? ((JArray)a["files"]).ToObject<List<string>>() : null,
-                                            time = datetostring(DateTime.Now)
-                                        };
-                                        chat.sendMessage(msg);
-                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
+                        if (a != null) {
+                            List<string>? files = a.ContainsKey("files") && (a["files"] is JArray) ? ((JArray)a["files"]).ToObject<List<string>>() : null;
+                            if (a.ContainsKey("token") && a.ContainsKey("chatid") && ((a.ContainsKey("content") && (a["content"].ToString() ?? "") != "") || (files != null && files.Count > 0))) {
+                                string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
+                                if (uid != null) {
+                                    Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
+                                    if (chat != null) {
+                                        if (chat.canDo(uid,Chat.chatAction.Send)) {
+                                            chatMessage msg = new() {
+                                                sender = uid,
+                                                content = (a["content"].ToString() ?? "").Trim(),
+                                                replymsgid = a.ContainsKey("replymsg") ? a["replymsg"].ToString() : null,
+                                                files = files,
+                                                time = datetostring(DateTime.Now)
+                                            };
+                                            chat.sendMessage(msg);
+                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                        }else {
+                                            statuscode = 401;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "You don't have permission to do this action."));
+                                        }
                                     }else {
-                                        statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "You don't have permission to do this action."));
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "Couldn't open chat. Is it valid????"));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
                         }else {
                             statuscode = 411;
