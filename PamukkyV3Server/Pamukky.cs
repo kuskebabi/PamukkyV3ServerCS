@@ -322,7 +322,7 @@ internal class Program
         public string chatid = "";
         public bool isgroup = false;
         Group group = new();
-        private const int pagesize = 20;
+        private const int pagesize = 48; //Increase this to get more messages
         private Dictionary<string,Dictionary<string,Dictionary<string,object?>>> updates = new();
         private Dictionary<string,chatMessageFormatted> formatcache = new();
         public void addupdater(string name) {
@@ -759,7 +759,19 @@ internal class Program
                                         File.WriteAllText("data/auth/" + token, astr);
                                         File.WriteAllText("data/auth/" + a.EMail, astr);
                                         SetUserProfile(uid,up);
-
+                                        List<chatItem>? chats = GetUserChats(uid); //get new user's chats list
+                                        if (chats != null) {
+                                            chatItem savedmessages = new() { //automatically add saved messages for the user.
+                                                user = uid,
+                                                type = "user",
+                                                chatid = uid + "-" + uid
+                                            };
+                                            addToChats(chats,savedmessages);
+                                            saveUserChats(uid,chats); //save it
+                                        }else {
+                                            Console.WriteLine("Signup chatslist was null!!!"); //log if weirdo
+                                        }
+                                        //Done
                                         res = JsonConvert.SerializeObject(new loginResponse(token,uid,up));
                                     }else {
                                         statuscode = 411;
@@ -937,8 +949,8 @@ internal class Program
                             if (uid != null) {
                                 List<chatItem>? chats = GetUserChats(uid);
                                 if (chats != null) {
-                                    foreach (chatItem item in chats) {
-                                        if (item.type == "user") {
+                                    foreach (chatItem item in chats) { //Format chats for clients
+                                        if (item.type == "user") { //Info
                                             var p = GetUserProfile(item.user ?? "");
                                             item.info = profileShort.fromProfile(p);
                                         }else if (item.type == "group") {
@@ -948,7 +960,7 @@ internal class Program
 
                                         Chat? chat = Chat.getChat(item.chatid);
                                         if (chat != null) {
-                                            if (chat.canDo(uid,Chat.chatAction.Read)) {
+                                            if (chat.canDo(uid,Chat.chatAction.Read)) { //Check for read permission before giving the last message
                                                 item.lastmessage = chat.getLastMessage();
                                             }
                                         }
