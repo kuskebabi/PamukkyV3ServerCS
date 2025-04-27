@@ -591,12 +591,12 @@ internal class Program
     class loginResponse { //for both signup and login calls.
         public string token;
         public string uid;
-        public userProfile userinfo;
+        //public userProfile userinfo;
 
-        public loginResponse(string utoken, string id, userProfile profile) {
+        public loginResponse(string utoken, string id) {
             token = utoken;
             uid = id;
-            userinfo = profile;
+            //userinfo = profile;
         }
     }
 
@@ -772,7 +772,7 @@ internal class Program
                                             Console.WriteLine("Signup chatslist was null!!!"); //log if weirdo
                                         }
                                         //Done
-                                        res = JsonConvert.SerializeObject(new loginResponse(token,uid,up));
+                                        res = JsonConvert.SerializeObject(new loginResponse(token,uid));
                                     }else {
                                         statuscode = 411;
                                         res = JsonConvert.SerializeObject(new serverResponse("error", "Password format wrong."));
@@ -803,9 +803,8 @@ internal class Program
                                     a.Password = hashpassword(a.Password,uid);
                                     if (lc.Password == a.Password && lc.EMail == a.EMail) {
                                         string token = lc.token;
-                                        userProfile? up = GetUserProfile(uid) ?? new userProfile();
                                         
-                                        res = JsonConvert.SerializeObject(new loginResponse(token,uid,up));
+                                        res = JsonConvert.SerializeObject(new loginResponse(token,uid));
                                     }else {
                                         statuscode = 403;
                                         res = JsonConvert.SerializeObject(new serverResponse("error","Incorrect login"));
@@ -843,6 +842,7 @@ internal class Program
                                         string astr = JsonConvert.SerializeObject(lc);
                                         File.WriteAllText("data/auth/" + token, astr);
                                         File.WriteAllText("data/auth/" + lc.EMail, astr);
+                                        loginCredCache.Remove(a["token"]);
                                         res = astr;
                                     }
                                 }else {
