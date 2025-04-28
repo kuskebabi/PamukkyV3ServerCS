@@ -1116,23 +1116,25 @@ internal class Program
                     }else if (url == "deletemessage") {
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgid")) {
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs")) {
                             string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
                             if (uid != null) {
                                 Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
                                 if (chat != null) {
-                                    string? msgid = a["msgid"].ToString() ?? "";
-                                    if (chat.canDo(uid,Chat.chatAction.Delete,msgid)) {
-                                        if (chat.ContainsKey(msgid)) {
-                                            chat.deleteMessage(msgid);
-                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
-                                        }else {
-                                            statuscode = 404;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "Message not found"));
+                                    if (a["msgs"] is JArray) {
+                                        var msgs = (JArray)a["msgs"];
+                                        foreach (object msg in msgs) {
+                                            string? msgid = msg.ToString() ?? "";
+                                            if (chat.canDo(uid,Chat.chatAction.Delete,msgid)) {
+                                                if (chat.ContainsKey(msgid)) {
+                                                    chat.deleteMessage(msgid);
+                                                }
+                                            }
                                         }
+                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
                                     }else {
-                                        statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "You don't have permission to do this action."));
+                                        statuscode = 411;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
                                     }
                                 }else {
                                     statuscode = 404;
@@ -1182,28 +1184,33 @@ internal class Program
                     }else if (url == "savemessage") {
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgid")) {
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs")) {
                             string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
                             if (uid != null) {
                                 Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
                                 if (chat != null) {
-                                    string? msgid = a["msgid"].ToString() ?? "";
-                                    if (chat.canDo(uid,Chat.chatAction.Read,msgid)) {
-                                        if (chat.ContainsKey(msgid)) {
-                                            Chat? uchat = Chat.getChat(uid + "-" + uid);
-                                            if (uchat != null) {
-                                                chatMessage msg = new() {
-                                                    sender = chat[msgid].sender,
-                                                    content = chat[msgid].content,
-                                                    files = chat[msgid].files,
-                                                    time = datetostring(DateTime.Now)
-                                                };
-                                                uchat.sendMessage(msg,false);
-                                                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                    if (chat.canDo(uid,Chat.chatAction.Read)) {
+                                        if (a["msgs"] is JArray) {
+                                            var msgs = (JArray)a["msgs"];
+                                            foreach (object msg in msgs) {
+                                                string? msgid = msg.ToString() ?? "";
+                                                if (chat.ContainsKey(msgid)) {
+                                                    Chat? uchat = Chat.getChat(uid + "-" + uid);
+                                                    if (uchat != null) {
+                                                        chatMessage message = new() {
+                                                            sender = chat[msgid].sender,
+                                                            content = chat[msgid].content,
+                                                            files = chat[msgid].files,
+                                                            time = datetostring(DateTime.Now)
+                                                        };
+                                                        uchat.sendMessage(message,false);
+
+                                                    }
+                                                }
                                             }
+                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
                                         }else {
-                                            statuscode = 404;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "Message not found"));
+
                                         }
                                     }else {
                                         statuscode = 401;
@@ -1224,35 +1231,40 @@ internal class Program
                     }else if (url == "forwardmessage") {
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgid") && a.ContainsKey("tochatid")) {
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs") && a.ContainsKey("tochats")) {
                             string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
                             if (uid != null) {
                                 Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
                                 if (chat != null) {
-                                    string? msgid = a["msgid"].ToString() ?? "";
-                                    if (chat.canDo(uid,Chat.chatAction.Read,msgid)) {
-                                        if (chat.ContainsKey(msgid)) {
-                                            Chat? uchat = Chat.getChat(a["tochatid"].ToString() ?? "");
-                                            if (uchat != null) {
-                                                if (uchat.canDo(uid,Chat.chatAction.Send)) {
-                                                    chatMessage msg = new() {
-                                                        forwardedfrom = chat[msgid].sender,
-                                                        sender = uid,
-                                                        content = chat[msgid].content,
-                                                        files = chat[msgid].files,
-                                                        time = datetostring(DateTime.Now)
-                                                    };
-                                                    uchat.sendMessage(msg);
-                                                    res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                    if (chat.canDo(uid,Chat.chatAction.Read)) {
+                                        if (a["msgs"] is JArray) {
+                                            var msgs = (JArray)a["msgs"];
+                                            foreach (object msg in msgs) {
+                                                string? msgid = msg.ToString() ?? "";
+                                                if (chat.ContainsKey(msgid)) {
+                                                    if (a["tochats"] is JArray) {
+                                                        var chats = (JArray)a["tochats"];
+                                                        foreach (object chatid in chats) {
+                                                            Chat? uchat = Chat.getChat(chatid.ToString() ?? "");
+                                                            if (uchat != null) {
+                                                                if (uchat.canDo(uid,Chat.chatAction.Send)) {
+                                                                    chatMessage message = new() {
+                                                                        forwardedfrom = chat[msgid].sender,
+                                                                        sender = uid,
+                                                                        content = chat[msgid].content,
+                                                                        files = chat[msgid].files,
+                                                                        time = datetostring(DateTime.Now)
+                                                                    };
+                                                                    uchat.sendMessage(message);
+                                                                    res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
                                                 }
-                                            }else {
-                                                statuscode = 404;
-                                                res = JsonConvert.SerializeObject(new serverResponse("error", "Couldn't open chat. Is it valid????"));
                                             }
-                                        }else {
-                                            statuscode = 404;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "Message not found"));
                                         }
+                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
                                     }else {
                                         statuscode = 401;
                                         res = JsonConvert.SerializeObject(new serverResponse("error", "You don't have permission to do this action."));
