@@ -22,12 +22,13 @@ internal class Program
 {
     public const string datetimeFormat = "MM dd yyyy, HH:mm zzz";
     static HttpListener _httpListener = new HttpListener();
-    static Dictionary<string, loginCred> loginCredCache = new();
+    static Dictionary<string, loginCred> loginCreds = new();
     static Dictionary<string, userProfile> userProfileCache = new();
     static Dictionary<string, List<chatItem>> userChatsCache = new();
     static Dictionary<string, Chat> chatsCache = new();
     static Dictionary<string, Group> groupsCache = new();
     static Notifications notifications = new();
+    static string pamukProfile = "{\"name\":\"Pamuk\",\"picture\":\"\",\"description\":\"Birb!!!\"}"; //Direct reply for clients, no need to make class and make it json as it's always the same.
 
     class Notifications:Dictionary<string, Dictionary<string, userNotification>> {
         public Dictionary<string, userNotification> Get(string uid) {
@@ -52,7 +53,6 @@ internal class Program
         public string EMail = "";
         public string Password = "";
         public string userID = "";
-        public string token = "";
     }
 
     class userProfile {
@@ -222,6 +222,7 @@ internal class Program
         public string sender = "";
         public string time = "";
     }
+
     class messageEmojiReactions:Dictionary<string,messageReaction> {} //Single reaction
 
     class messageReactions:Dictionary<string,messageEmojiReactions> { // All reactions
@@ -636,7 +637,7 @@ internal class Program
 
     static void SetUserProfile(string uid,userProfile up) {
         userProfileCache[uid] = up; //set
-        File.WriteAllText("data/user/" + uid + "/profile", JsonConvert.SerializeObject(up)); //save
+        File.WriteAllTextAsync("data/user/" + uid + "/profile", JsonConvert.SerializeObject(up)); //save
     }
 
     static loginCred? GetLoginCred(string token, bool preventbypass = true) {
@@ -644,17 +645,17 @@ internal class Program
         if (token.Contains("@") && preventbypass) { //bypassing
             return null;
         }
-        if (loginCredCache.ContainsKey(token)) {
-            return loginCredCache[token];
-        }else {
+        if (loginCreds.ContainsKey(token)) {
+            return loginCreds[token];
+        }/*else {
             if (File.Exists("data/auth/" + token)) {
                 loginCred? up = JsonConvert.DeserializeObject<loginCred>(File.ReadAllText("data/auth/" + token));
                 if (up != null) {
-                    loginCredCache[token] = up;
+                    loginCreds[token] = up;
                     return up;
                 }
             }
-        }
+        }*/
         return null;
     }
 
@@ -736,7 +737,7 @@ internal class Program
                                         string uid = "";
                                         do 
                                         {
-                                            uid =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                                            uid = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
                                         }
                                         while (Directory.Exists("data/user/" + uid));
 
@@ -745,18 +746,19 @@ internal class Program
                                         string token = "";
                                         do 
                                         {
-                                            token =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                                            token = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
                                         }
-                                        while (File.Exists("data/auth/" + token));
+                                        while (loginCreds.ContainsKey(token));
 
                                         a.userID = uid;
-                                        a.token = token;
+                                        //a.token = token;
 
                                         //Console.WriteLine(a.Password);
                                         userProfile up = new() {name = a.EMail.Split("@")[0].Split(".")[0]};
                                         Directory.CreateDirectory("data/user/" + uid);
                                         string astr = JsonConvert.SerializeObject(a);
-                                        File.WriteAllText("data/auth/" + token, astr);
+                                        //File.WriteAllText("data/auth/" + token, astr);
+                                        loginCreds[token] = a;
                                         File.WriteAllText("data/auth/" + a.EMail, astr);
                                         SetUserProfile(uid,up);
                                         List<chatItem>? chats = GetUserChats(uid); //get new user's chats list
@@ -802,8 +804,17 @@ internal class Program
                                     string uid = lc.userID;
                                     a.Password = hashpassword(a.Password,uid);
                                     if (lc.Password == a.Password && lc.EMail == a.EMail) {
-                                        string token = lc.token;
-                                        
+                                        //Console.WriteLine("Logging in...");
+                                        string token = "";
+                                        do
+                                        {
+                                            //Console.WriteLine("Generating token...");
+                                            token =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                                        }
+                                        while (loginCreds.ContainsKey(token));
+                                        //Console.WriteLine("Generated token");
+                                        loginCreds[token] = lc;
+                                        //Console.WriteLine("Respond");
                                         res = JsonConvert.SerializeObject(new loginResponse(token,uid));
                                     }else {
                                         statuscode = 403;
@@ -830,19 +841,24 @@ internal class Program
                                 loginCred? lc = GetLoginCred(a["token"]);
                                 if (lc != null) {
                                     if (lc.Password == hashpassword(a["oldpassword"],lc.userID)) {
-                                        string token = "";
+                                        /*string token = "";
                                         do 
                                         {
                                             token =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
                                         }
-                                        while (File.Exists("data/auth/" + token));
-                                        File.Delete("data/auth/" + lc.token);
-                                        lc.token = token;
+                                        while (loginCreds.ContainsKey(token));*/
+                                        //File.Delete("data/auth/" + lc.token);
+                                        //lc.token = token;
                                         lc.Password = hashpassword(a["password"].Trim(),lc.userID);
                                         string astr = JsonConvert.SerializeObject(lc);
-                                        File.WriteAllText("data/auth/" + token, astr);
+                                        //File.WriteAllText("data/auth/" + token, astr);
                                         File.WriteAllText("data/auth/" + lc.EMail, astr);
-                                        loginCredCache.Remove(a["token"]);
+                                        //Find other logins
+                                        var tokens = loginCreds.Where(lco => lco.Value.userID == lc.userID && lc != lco.Value);
+                                        foreach (var token in tokens) {
+                                            //remove the logins.
+                                            loginCreds.Remove(token.Key);
+                                        }
                                         res = astr;
                                     }
                                 }else {
@@ -861,12 +877,16 @@ internal class Program
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("uid")) {
-                            userProfile? up = GetUserProfile(a["uid"]);
-                            if (up != null) {
-                                res = JsonConvert.SerializeObject(up);
+                            if (a["uid"] == "0") {
+                                res = pamukProfile;
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                userProfile? up = GetUserProfile(a["uid"]);
+                                if (up != null) {
+                                    res = JsonConvert.SerializeObject(up);
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                }
                             }
                         }else {
                             statuscode = 411;
