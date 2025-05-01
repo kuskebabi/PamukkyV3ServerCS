@@ -15,6 +15,7 @@ using System.Reflection;
 
 using Konscious.Security.Cryptography;
 using System.Web;
+using System.Security.Cryptography.X509Certificates;
 
 namespace PamukkyV3;
 
@@ -647,7 +648,7 @@ internal class Program
         }
         if (loginCreds.ContainsKey(token)) {
             return loginCreds[token];
-        }/*else {
+        }else {
             if (File.Exists("data/auth/" + token)) {
                 loginCred? up = JsonConvert.DeserializeObject<loginCred>(File.ReadAllText("data/auth/" + token));
                 if (up != null) {
@@ -655,7 +656,7 @@ internal class Program
                     return up;
                 }
             }
-        }*/
+        }
         return null;
     }
 
@@ -1762,13 +1763,22 @@ internal class Program
         // Start the server
         _httpListener.Prefixes.Add("http://*:" + HTTPport + "/"); //http prefix
         _httpListener.Prefixes.Add("https://*:" + HTTPSport + "/"); //https prefix
+        
         _httpListener.Start();
         Console.WriteLine("Server started. On ports " + HTTPport + " and " + HTTPSport);
         // Start responding for server
         respond();
-        Console.WriteLine("Press any key to exit.");
+        Console.WriteLine("Type exit to exit, type save to save.");
         autoSaveTick(); // Start the autosave ticker
-        Console.Read();
+        bool exit = false;
+        while (!exit) {
+            string readline = Console.ReadLine() ?? "";
+            if (readline == "exit") {
+                exit = true;
+            }else if (readline == "save") {
+                saveData();
+            }
+        }
         // After user wants to exit, save "cached" data
         saveData();
     }
