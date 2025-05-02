@@ -5,6 +5,8 @@ using System.IO;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
+using ImageMagick;
+
 using System.Net;
 using System.Threading;
 using System.Text;
@@ -15,12 +17,13 @@ using System.Reflection;
 
 using Konscious.Security.Cryptography;
 using System.Web;
-using System.Security.Cryptography.X509Certificates;
 
 namespace PamukkyV3;
 
 internal class Program
 {
+    public const int thumbSize = 360;
+    public const int thumbQuality = 75;
     public const string datetimeFormat = "MM dd yyyy, HH:mm zzz";
     static HttpListener _httpListener = new HttpListener();
     static Dictionary<string, loginCred> loginCreds = new();
@@ -1338,7 +1341,7 @@ internal class Program
                                         string id = "";
                                         do 
                                         {
-                                            id =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                                            id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
                                         }
                                         while (File.Exists("data/upload/" + id));
                                         string? filename = context.Request.Headers["filename"];
@@ -1374,7 +1377,10 @@ internal class Program
                                                 byte[] bts = Encoding.UTF8.GetBytes(res);
                                                 context.Response.OutputStream.Write(bts, 0, bts.Length);
                                                 context.Response.KeepAlive = false; 
-                                                context.Response.Close(); 
+                                                context.Response.Close();
+                                                string extension = u.contentType.Split("/")[1];
+                                                if (extension == "png" || extension == "jpg" || extension == "jpeg" || extension == "gif" || extension == "bmp")
+                                                    mediaProcesserJobs.Add(id);
                                             }
                                         });
                                         writeRes = false;
@@ -1397,22 +1403,30 @@ internal class Program
                     }else if (url.StartsWith("getmedia")) { //Needs improvement
                         if (context.Request.QueryString["file"] != null) {
                             string file = context.Request.QueryString["file"] ?? "";
+                            string type = context.Request.QueryString["type"] ?? "";
                             if (File.Exists("data/upload/" + file)) {
                                 fileUpload? f = JsonConvert.DeserializeObject<fileUpload>(File.ReadAllText("data/upload/" + file));
                                 if (f != null) {
-                                    writeRes = false;
                                     context.Response.AddHeader("Content-Length", f.size.ToString());
                                     if (context.Request.Headers["sec-fetch-dest"] != "document") {
                                         context.Response.AddHeader("Content-Disposition", "attachment; filename=" + HttpUtility.UrlEncode(f.actualName));
                                     }
                                     context.Response.StatusCode = statuscode;
-                                    var fileStream = File.OpenRead("data/upload/" + file + ".file");
-                                    context.Response.KeepAlive = false; 
-                                    var cp = fileStream.CopyToAsync(context.Response.OutputStream);
-                                    cp.ContinueWith((Task cpt) =>
-                                    {
-                                            if (c.IsCompletedSuccessfully) {context.Response.Close();fileStream.Close();fileStream.Dispose();}
-                                    });
+                                    string path = "data/upload/" + file + "." + (type == "thumb" ? "thumb" : "file");
+                                    if (File.Exists(path)) {
+                                        writeRes = false;
+                                        var fileStream = File.OpenRead(path);
+                                        context.Response.KeepAlive = false;
+                                        var cp = fileStream.CopyToAsync(context.Response.OutputStream);
+                                        cp.ContinueWith((Task cpt) =>
+                                        {
+                                                if (c.IsCompletedSuccessfully) {context.Response.Close();fileStream.Close();fileStream.Dispose();}
+                                        });
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "File doesn't exist, could be the thumbnail."));
+                                        //mediaProcesserJobs.Add(file); //Generate it for next visits. (well, could be used to spam the server. ig just ignore old images for now.)
+                                    }
                                 }else {
                                     statuscode = 500;
                                     res = JsonConvert.SerializeObject(new serverResponse("error"));
@@ -1735,6 +1749,32 @@ internal class Program
         });
     }
 
+    static List<string> mediaProcesserJobs = new();
+
+    static void mediaProcesser() { //thread function for processing media
+        Console.WriteLine("mediaProcesser thread started!");
+        while (!exit) {
+            if (mediaProcesserJobs.Count > 0)
+            try {
+                string job = mediaProcesserJobs[0];
+                mediaProcesserJobs.RemoveAt(0);
+                Console.WriteLine(job);
+                using (var image = new MagickImage("data/upload/" + job + ".file"))
+                {
+                    image.Resize(thumbSize, thumbSize);
+                    image.Strip();
+                    image.Quality = thumbQuality;
+                    image.Write("data/upload/" + job + ".thumb");
+                }
+            }catch (Exception e) {
+                Console.WriteLine(e.ToString());
+            }
+            Thread.Sleep(100); //Sleep to save cpu
+        }
+    }
+
+    static bool exit = false;
+
     static void Main(string[] args)
     {
         JsonConvert.DefaultSettings = () => new JsonSerializerSettings
@@ -1770,7 +1810,9 @@ internal class Program
         respond();
         Console.WriteLine("Type exit to exit, type save to save.");
         autoSaveTick(); // Start the autosave ticker
-        bool exit = false;
+        new Thread(mediaProcesser).Start();
+
+        // CLI
         while (!exit) {
             string readline = Console.ReadLine() ?? "";
             if (readline == "exit") {
