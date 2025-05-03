@@ -325,6 +325,7 @@ internal class Program
 
     class Chat:OrderedDictionary<string,chatMessage> {
         public string chatid = "";
+        public Chat? mainchat = null;
         public bool isgroup = false;
         Group group = new();
         private const int pagesize = 48; //Increase this to get more messages
@@ -357,12 +358,13 @@ internal class Program
                 chatMessageFormatted formatted = new chatMessageFormatted(this[key]);
                 formatcache[key] = formatted;
                 if (formatted.replymsgid != null) {
-                    if (ContainsKey(formatted.replymsgid)) {
-                        chatMessageFormatted? innerformatted = formatMessage(formatted.replymsgid);
-                        if (innerformatted != null) { //The senderuser stuff was removed.
-                            formatted.replymsgcontent = innerformatted.content;
-                            formatted.replymsgsender = innerformatted.sender;
-                        }
+                    //chatMessageFormatted? innerformatted = formatMessage(formatted.replymsgid);
+                    var chat = mainchat ?? this;// Get the message from the full chat, as page might not contain it. if chat is null, use this chat (could be a page only).
+                    //Console.WriteLine(mainchat == null ? "null!" : "exists");
+                    if (chat.ContainsKey(formatted.replymsgid)) { // Check if message exists
+                        var message = chat[formatted.replymsgid];
+                        formatted.replymsgcontent = message.content;
+                        formatted.replymsgsender = message.sender;
                     }
                 }
                 return formatted;
@@ -380,7 +382,7 @@ internal class Program
         }
         public Chat getPage(int page = 0) {
             if (Count - 1 > pagesize) {
-                Chat rtrn = new() {chatid = chatid};
+                Chat rtrn = new() {chatid = chatid, mainchat = this};
                 int index = (Count - 1) - (page * pagesize);
                 //Console.WriteLine(Count);
                 while (index > Count - ((page + 1) * pagesize) && index >= 0) {
@@ -586,10 +588,12 @@ internal class Program
     class serverResponse { //Mostly for errors and actions that doesn't have any return
         public string status; //done
         public string? description;
+        public string? code;
 
-        public serverResponse(string stat, string? descript = null) { //for easier creation
+        public serverResponse(string stat, string? scode = null, string? descript = null) { //for easier creation
             status = stat;
             description = descript;
+            code = scode;
         }
     }
 
@@ -781,15 +785,15 @@ internal class Program
                                         res = JsonConvert.SerializeObject(new loginResponse(token,uid));
                                     }else {
                                         statuscode = 411;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "Password format wrong."));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "WPFORMAT", "Password format wrong."));
                                     }
                                 }else {
                                     statuscode = 411;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "Invalid E-Mail."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "WEFORMAT", "Invalid E-Mail."));
                                 }
                             }else {
                                 statuscode = 401;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User already exists."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "USEREXISTS", "User already exists."));
                             }
                             
                         }else {
@@ -822,7 +826,7 @@ internal class Program
                                         res = JsonConvert.SerializeObject(new loginResponse(token,uid));
                                     }else {
                                         statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error","Incorrect login"));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "WRONGLOGIN","Incorrect login"));
                                     }
                                 }else {
                                     statuscode = 411;
@@ -830,7 +834,7 @@ internal class Program
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                             
                         }else {
@@ -867,11 +871,11 @@ internal class Program
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER","User doesn't exist."));
                                 }
                             }else {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "Password format wrong."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "WPFORMAT", "Password format wrong."));
                             }
                         }else {
                             statuscode = 411;
@@ -889,7 +893,7 @@ internal class Program
                                     res = JsonConvert.SerializeObject(up);
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }
                         }else {
@@ -905,7 +909,7 @@ internal class Program
                                 res = up.getOnline();
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -922,11 +926,11 @@ internal class Program
                                     user.setOnline();
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -941,7 +945,7 @@ internal class Program
                                 userProfile? user = GetUserProfile(uid);
                                 if (user != null) {
                                     if (a.ContainsKey("name") && a["name"].Trim() != "") {
-                                        user.name = a["name"].Trim();
+                                        user.name = a["name"].Trim().Replace("\n","");
                                     }
                                     if (!a.ContainsKey("picture")) {
                                         a["picture"] = "";
@@ -955,11 +959,11 @@ internal class Program
                                     res = JsonConvert.SerializeObject(new serverResponse("done"));
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1000,7 +1004,7 @@ internal class Program
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1026,7 +1030,7 @@ internal class Program
                                 });
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1064,7 +1068,7 @@ internal class Program
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1083,15 +1087,15 @@ internal class Program
                                         res = JsonConvert.SerializeObject(chat.getPage(a.ContainsKey("page") ? int.Parse(a["page"]) : 0).format());
                                     }else {
                                         statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "You don't have permission to do this action."));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED","You don't have permission to do this action."));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT","Couldn't open chat. Is it valid????"));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1119,15 +1123,15 @@ internal class Program
                                             res = JsonConvert.SerializeObject(new serverResponse("done"));
                                         }else {
                                             statuscode = 401;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "You don't have permission to do this action."));
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
                                         }
                                     }else {
                                         statuscode = 404;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "Couldn't open chat. Is it valid????"));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER","User doesn't exist."));
                                 }
                             }else {
                                 statuscode = 411;
@@ -1162,11 +1166,11 @@ internal class Program
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1187,19 +1191,19 @@ internal class Program
                                             res = JsonConvert.SerializeObject(chat.reactMessage(msgid,uid,reaction));
                                         }else {
                                             statuscode = 404;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "Message not found"));
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOMSG", "Message not found"));
                                         }
                                     }else {
                                         statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "You don't have permission to do this action."));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1238,15 +1242,15 @@ internal class Program
                                         }
                                     }else {
                                         statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "You don't have permission to do this action."));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1291,15 +1295,15 @@ internal class Program
                                         res = JsonConvert.SerializeObject(new serverResponse("done"));
                                     }else {
                                         statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "You don't have permission to do this action."));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1317,15 +1321,15 @@ internal class Program
                                         res = JsonConvert.SerializeObject(chat.getupdater(uid));
                                     }else {
                                         statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "You don't have permission to do this action."));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1386,15 +1390,15 @@ internal class Program
                                         writeRes = false;
                                     }else {
                                         statuscode = 404;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "No file."));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "No file."));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "No file."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "No file."));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1433,7 +1437,7 @@ internal class Program
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "File doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "File doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1526,11 +1530,11 @@ internal class Program
                                     res = JsonConvert.SerializeObject(response);
                                 }else {
                                     statuscode = 411;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error","No group info"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOINFO","No group info"));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1549,7 +1553,7 @@ internal class Program
                                 });
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "Group doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1564,7 +1568,7 @@ internal class Program
                                 res = JsonConvert.SerializeObject(gp.members);
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "Group doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1579,7 +1583,7 @@ internal class Program
                                 res = gp.members.Count.ToString();
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "Group doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1594,7 +1598,7 @@ internal class Program
                                 res = JsonConvert.SerializeObject(gp.roles);
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "Group doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1620,11 +1624,11 @@ internal class Program
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "Group doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
@@ -1659,11 +1663,11 @@ internal class Program
                                         gp.save();
                                     }else {
                                         statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "Not allowed"));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "Group doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                                 }
                             }else {
                                 statuscode = 404;
@@ -1689,23 +1693,23 @@ internal class Program
                                                 gp.save();
                                             }else {
                                                 statuscode = 404;
-                                                res = JsonConvert.SerializeObject(new serverResponse("error", "Role doesn't exist."));
+                                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOROLE", "Role doesn't exist."));
                                             }
                                         }else {
                                             statuscode = 404;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                         }
                                     }else {
                                         statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "Not allowed"));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "Group doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                                 }
                             }else {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
