@@ -1736,6 +1736,7 @@ internal class Program
                                 if (gp != null) {
                                     if (gp.removeUser(uid)) {
                                         gp.save();
+                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
                                     }else {
                                         statuscode = 500;
                                         res = JsonConvert.SerializeObject(new serverResponse("error"));
@@ -1763,6 +1764,7 @@ internal class Program
                                     if (gp.canDo(uid,Group.groupAction.Kick,a["uid"] ?? "")) {
                                         if (gp.removeUser(a["uid"] ?? "")) {
                                             gp.save();
+                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
                                         }else {
                                             statuscode = 500;
                                             res = JsonConvert.SerializeObject(new serverResponse("error"));
