@@ -31,6 +31,7 @@ internal class Program
     static Dictionary<string, List<chatItem>> userChatsCache = new();
     static Dictionary<string, Chat> chatsCache = new();
     static Dictionary<string, Group> groupsCache = new();
+    static Dictionary<string, userStatus> userstatus = new(); //Current user status that might need to be "private"
     static Notifications notifications = new();
     static string pamukProfile = "{\"name\":\"Pamuk\",\"picture\":\"\",\"description\":\"Birb!!!\"}"; //Direct reply for clients, no need to make class and make it json as it's always the same.
 
@@ -57,6 +58,10 @@ internal class Program
         public string EMail = "";
         public string Password = "";
         public string userID = "";
+    }
+
+    class userStatus {
+        public string typingChat = "";
     }
 
     class userProfile {
@@ -151,14 +156,62 @@ internal class Program
             saveUserChats(uid,clist); //Save their chats list
             return true; //Success!!
         }
+
+        public bool removeUser(string uid,string role = "Normal") {
+            if (!members.ContainsKey(uid)) { // To not mess stuff up
+                return true;
+            }
+            List<chatItem>? clist = GetUserChats(uid); // Get chats list of user
+            if (clist == null) {
+                return false; //user doesn't exist
+            }
+            members.Remove(uid); //Goodbye..
+            removeFromChats(clist,groupID); //Remove chat from their chats list
+            saveUserChats(uid,clist); //Save their chats list
+            return true; //Success!!
+        }
+
         public enum groupAction {
-            Kick, //TODO
+            Kick,
             Ban, //TODO
             EditUser,
             EditGroup
         }
 
-        public bool canDo(string user,groupAction action) {
+        public bool canDo(string user,groupAction action,string? target = null) {
+            bool contains = false;
+            groupMember? u = null;
+            groupMember? tu = null;
+            foreach (var member in members) { //find the user
+                if (member.Value.user == user) {
+                    contains = true;
+                    u = member.Value;
+                }
+                if (member.Value.user == target) {
+                    tu = member.Value;
+                }
+            }
+
+            if (!contains || u == null) { // Doesn't exist? block
+                return false;
+            }
+
+            // Get the role
+            groupRole role = roles[u.role];
+            //Check what the role can do depending on the request.
+
+            if (action == groupAction.EditGroup) return role.AllowEditingSettings;
+            if (tu != null) {
+                groupRole trole = roles[tu.role];
+                if (action == groupAction.EditUser) return role.AllowEditingUsers && role.AdminOrder <= trole.AdminOrder;
+                if (action == groupAction.Kick) return role.AllowKicking && role.AdminOrder < trole.AdminOrder;
+                if (action == groupAction.Ban) return role.AllowBanning && role.AdminOrder < trole.AdminOrder;
+            }
+
+            return false;
+        }
+
+        public groupRole? getUserRole(string user) {
             bool contains = false;
             groupMember? u = null;
             foreach (var member in members) { //find the user
@@ -167,19 +220,15 @@ internal class Program
                     u = member.Value;
                 }
             }
+
             if (!contains || u == null) { // Doesn't exist? block
-                return false;
+                return null;
             }
 
             // Get the role
             groupRole role = roles[u.role];
-            //Check what the role can do depending on the request.
-            if (action == groupAction.EditUser) return role.AllowEditingUsers;
-            if (action == groupAction.EditGroup) return role.AllowEditingSettings;
-            if (action == groupAction.Kick) return role.AllowKicking;
-            if (action == groupAction.Ban) return role.AllowBanning;
 
-            return false;
+            return role;
         }
 
         public void save() {
@@ -627,6 +676,18 @@ internal class Program
         }catch {return "";}
     }
 
+    userStatus? getuserstatus(string uid) {
+        if (userstatus.ContainsKey(uid)) {
+            return userstatus[uid];
+        }else {
+            if (File.Exists("data/user/" + uid + "/profile")) { // check
+                userStatus us = new userStatus();
+                userstatus[uid] = us;
+                return us;
+            }
+        }
+        return null;
+    }
 
     static userProfile? GetUserProfile(string uid) {
         if (userProfileCache.ContainsKey(uid)) {
@@ -703,6 +764,11 @@ internal class Program
             }
         }
         list.Add(item);
+    }
+
+    static void removeFromChats(List<chatItem> list, string chatid) { //Remove from chats list
+        var itm = list.Where(i => i.chatid == chatid).FirstOrDefault();
+        if (itm != null) list.Remove(itm);
     }
 
     static void saveUserChats(string uid, List<chatItem> list) { //Chats list
@@ -1317,8 +1383,34 @@ internal class Program
                             if (uid != null) {
                                 Chat? chat = Chat.getChat(a["id"]);
                                 if (chat != null) {
-                                    if (chat.canDo(uid,Chat.chatAction.Read)) {
+                                    if (chat.canDo(uid,Chat.chatAction.Read)) { //Check if user can even "read" it at all
                                         res = JsonConvert.SerializeObject(chat.getupdater(uid));
+                                    }else {
+                                        statuscode = 401;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                }
+                            }else {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                            }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
+                    }else if (url == "settyping") { //Set user as typing at a chat
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("id")) {
+                            string? uid = GetUIDFromToken(a["token"]);
+                            if (uid != null) {
+                                Chat? chat = Chat.getChat(a["id"]);
+                                if (chat != null) {
+                                    if (chat.canDo(uid,Chat.chatAction.Send)) { //Ofc, if the user has the permission to send at the chat
+
                                     }else {
                                         statuscode = 401;
                                         res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
@@ -1634,6 +1726,63 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
+                    }else if (url == "leavegroup") {
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid")) {
+                            string? uid = GetUIDFromToken(a["token"]);
+                            if (uid != null) {
+                                Group? gp = Group.get(a["groupid"]);
+                                if (gp != null) {
+                                    if (gp.removeUser(uid)) {
+                                        gp.save();
+                                    }else {
+                                        statuscode = 500;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                            }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
+                    }else if (url == "kickuser") {
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
+                            string? uid = GetUIDFromToken(a["token"]);
+                            if (uid != null) {
+                                Group? gp = Group.get(a["groupid"]);
+                                if (gp != null) {
+                                    if (gp.canDo(uid,Group.groupAction.Kick,a["uid"] ?? "")) {
+                                        if (gp.removeUser(a["uid"] ?? "")) {
+                                            gp.save();
+                                        }else {
+                                            statuscode = 500;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                        }
+                                    }else {
+                                        statuscode = 403;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                            }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
                     }else if (url == "editgroup") {
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
@@ -1685,12 +1834,24 @@ internal class Program
                             if (uid != null) {
                                 Group? gp = Group.get(a["groupid"]);
                                 if (gp != null) {
-                                    if (gp.canDo(uid,Group.groupAction.EditUser)) {
+                                    if (gp.canDo(uid,Group.groupAction.EditUser,a["userid"])) {
                                         if (gp.members.ContainsKey(a["userid"])) {
                                             if (gp.roles.ContainsKey(a["role"])) {
-                                                gp.members[a["userid"]].role = a["role"];
-                                                res = JsonConvert.SerializeObject(new serverResponse("done"));
-                                                gp.save();
+                                                var crole = gp.roles[a["role"]];
+                                                var curole = gp.getUserRole(uid);
+                                                if (curole != null) {
+                                                    if (crole.AdminOrder >= curole.AdminOrder) { //Dont allow to promote higher from current role.
+                                                        gp.members[a["userid"]].role = a["role"];
+                                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                                        gp.save();
+                                                    }else {
+                                                        statuscode = 403;
+                                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed to set more than current role"));
+                                                    }
+                                                }else {
+                                                    statuscode = 500;
+                                                    res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                                }
                                             }else {
                                                 statuscode = 404;
                                                 res = JsonConvert.SerializeObject(new serverResponse("error", "NOROLE", "Role doesn't exist."));
