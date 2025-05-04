@@ -62,6 +62,18 @@ internal class Program
 
     class userStatus {
         public string typingChat = "";
+        private DateTime? typetime;
+        public bool getTyping(string chatid) {
+            if (typetime == null) {
+                return false;
+            }else {
+                return typetime.Value.AddSeconds(3) > DateTime.Now && chatid == typingChat;
+            }
+        }
+        public void setTyping(string chatid) {
+            typetime = DateTime.Now;
+            typingChat = chatid;
+        }
     }
 
     class userProfile {
@@ -380,6 +392,20 @@ internal class Program
         private const int pagesize = 48; //Increase this to get more messages
         private Dictionary<string,Dictionary<string,Dictionary<string,object?>>> updates = new();
         private Dictionary<string,chatMessageFormatted> formatcache = new();
+
+        public List<string> getTyping() {
+            List<string> res = new();
+            foreach (string user in group.members.Keys) {
+                var status = getuserstatus(user);
+                if (status != null) {
+                    if (status.getTyping(chatid)) {
+                        res.Add(user);
+                    }
+                }
+            }
+            return res;
+        }
+
         public void addupdater(string name) {
             if (!updates.ContainsKey(name)) {
                 updates[name] = new();
@@ -676,7 +702,7 @@ internal class Program
         }catch {return "";}
     }
 
-    userStatus? getuserstatus(string uid) {
+    static userStatus? getuserstatus(string uid) {
         if (userstatus.ContainsKey(uid)) {
             return userstatus[uid];
         }else {
@@ -1186,6 +1212,10 @@ internal class Program
                                                 time = datetostring(DateTime.Now)
                                             };
                                             chat.sendMessage(msg);
+                                            var userstatus = getuserstatus(uid);
+                                            if (userstatus != null) {
+                                                userstatus.setTyping("");
+                                            }
                                             res = JsonConvert.SerializeObject(new serverResponse("done"));
                                         }else {
                                             statuscode = 401;
@@ -1350,7 +1380,6 @@ internal class Program
                                                                         time = datetostring(DateTime.Now)
                                                                     };
                                                                     uchat.sendMessage(message);
-                                                                    res = JsonConvert.SerializeObject(new serverResponse("done"));
                                                                 }
                                                             }
                                                         }
@@ -1404,13 +1433,47 @@ internal class Program
                     }else if (url == "settyping") { //Set user as typing at a chat
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("id")) {
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid")) {
                             string? uid = GetUIDFromToken(a["token"]);
                             if (uid != null) {
-                                Chat? chat = Chat.getChat(a["id"]);
+                                Chat? chat = Chat.getChat(a["chatid"]);
                                 if (chat != null) {
                                     if (chat.canDo(uid,Chat.chatAction.Send)) { //Ofc, if the user has the permission to send at the chat
-
+                                        var userstatus = getuserstatus(uid);
+                                        if (userstatus != null) {
+                                            userstatus.setTyping(chat.chatid);
+                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                        }else {
+                                            statuscode = 500;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                        }
+                                    }else {
+                                        statuscode = 401;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                }
+                            }else {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                            }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
+                    }else if (url == "gettyping") { //Get typing users in a chat
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid")) {
+                            string? uid = GetUIDFromToken(a["token"]);
+                            if (uid != null) {
+                                Chat? chat = Chat.getChat(a["chatid"]);
+                                if (chat != null) {
+                                    if (chat.canDo(uid,Chat.chatAction.Read)) { //Ofc, if the user has the permission to read the chat
+                                        var userstatus = getuserstatus(uid);
+                                        res = JsonConvert.SerializeObject(chat.getTyping());
                                     }else {
                                         statuscode = 401;
                                         res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
@@ -1681,7 +1744,7 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
-                    }else if (url == "getgrouproles") {
+                    }else if (url == "getgrouproles") { //get all group roles
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("groupid")) {
@@ -1691,6 +1754,33 @@ internal class Program
                             }else {
                                 statuscode = 404;
                                 res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                            }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
+                    }else if (url == "getgrouprole") { //Group role for current user
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid")) {
+                            string? uid = GetUIDFromToken(a["token"]);
+                            if (uid != null) {
+                                Group? gp = Group.get(a["groupid"]);
+                                if (gp != null) {
+                                    var role = gp.getUserRole(uid);
+                                    if (role != null) {
+                                        res = JsonConvert.SerializeObject(role);
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }else {
                             statuscode = 411;
