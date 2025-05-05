@@ -22,7 +22,7 @@ namespace PamukkyV3;
 
 internal class Program
 {
-    public const int thumbSize = 360;
+    public const int thumbSize = 256;
     public const int thumbQuality = 75;
     public const string datetimeFormat = "MM dd yyyy, HH:mm zzz";
     static HttpListener _httpListener = new HttpListener();
@@ -942,24 +942,24 @@ internal class Program
                                 if (lc != null) {
                                     if (lc.Password == hashpassword(a["oldpassword"],lc.userID)) {
                                         /*string token = "";
-                                        do 
-                                        {
-                                            token =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
-                                        }
-                                        while (loginCreds.ContainsKey(token));*/
+                                         *                   do
+                                         *                   {
+                                         *                       token =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                                    }
+                                    while (loginCreds.ContainsKey(token));*/
                                         //File.Delete("data/auth/" + lc.token);
                                         //lc.token = token;
                                         lc.Password = hashpassword(a["password"].Trim(),lc.userID);
                                         string astr = JsonConvert.SerializeObject(lc);
-                                        //File.WriteAllText("data/auth/" + token, astr);
-                                        File.WriteAllText("data/auth/" + lc.EMail, astr);
-                                        //Find other logins
-                                        var tokens = loginCreds.Where(lco => lco.Value.userID == lc.userID && lc != lco.Value);
-                                        foreach (var token in tokens) {
-                                            //remove the logins.
-                                            loginCreds.Remove(token.Key);
-                                        }
-                                        res = astr;
+                                    //File.WriteAllText("data/auth/" + token, astr);
+                                    File.WriteAllText("data/auth/" + lc.EMail, astr);
+                                    //Find other logins
+                                    var tokens = loginCreds.Where(lco => lco.Value.userID == lc.userID && lc != lco.Value);
+                                    foreach (var token in tokens) {
+                                        //remove the logins.
+                                        loginCreds.Remove(token.Key);
+                                    }
+                                    res = astr;
                                     }
                                 }else {
                                     statuscode = 404;
@@ -969,6 +969,16 @@ internal class Program
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error", "WPFORMAT", "Password format wrong."));
                             }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
+                    }else if (url == "logout") {
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                        if (a != null && a.ContainsKey("token")) {
+                            loginCreds.Remove(a["token"]);
+                            res = JsonConvert.SerializeObject(new serverResponse("done"));
                         }else {
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
