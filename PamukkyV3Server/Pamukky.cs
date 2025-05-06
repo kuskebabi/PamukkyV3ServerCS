@@ -237,6 +237,10 @@ internal class Program
                 return null;
             }
 
+            if (!roles.ContainsKey(u.role)) { // Doesn't exist? block.
+                return null;
+            }
+
             // Get the role
             groupRole role = roles[u.role];
 
@@ -563,7 +567,7 @@ internal class Program
                     return true;
                 }
             }
-            if (u.role != "") { //is this a real group user?
+            if (u.role != "" && group.roles.ContainsKey(u.role)) { //is this a real group user?
                 //Then it's a real group
                 groupRole role = group.roles[u.role];
                 if (action == chatAction.React) return role.AllowSendingReactions;
@@ -945,21 +949,21 @@ internal class Program
                                          *                   do
                                          *                   {
                                          *                       token =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
-                                    }
-                                    while (loginCreds.ContainsKey(token));*/
+                                        }
+                                        while (loginCreds.ContainsKey(token));*/
                                         //File.Delete("data/auth/" + lc.token);
                                         //lc.token = token;
                                         lc.Password = hashpassword(a["password"].Trim(),lc.userID);
                                         string astr = JsonConvert.SerializeObject(lc);
-                                    //File.WriteAllText("data/auth/" + token, astr);
-                                    File.WriteAllText("data/auth/" + lc.EMail, astr);
-                                    //Find other logins
-                                    var tokens = loginCreds.Where(lco => lco.Value.userID == lc.userID && lc != lco.Value);
-                                    foreach (var token in tokens) {
-                                        //remove the logins.
-                                        loginCreds.Remove(token.Key);
-                                    }
-                                    res = astr;
+                                        //File.WriteAllText("data/auth/" + token, astr);
+                                        File.WriteAllText("data/auth/" + lc.EMail, astr);
+                                        //Find other logins
+                                        var tokens = loginCreds.Where(lco => lco.Value.userID == lc.userID && lc != lco.Value);
+                                        foreach (var token in tokens) {
+                                            //remove the logins.
+                                            loginCreds.Remove(token.Key);
+                                        }
+                                        res = astr;
                                     }
                                 }else {
                                     statuscode = 404;
@@ -1903,7 +1907,7 @@ internal class Program
                                         if (a.ContainsKey("info") && (a["info"].ToString() ?? "").Trim() != "") {
                                             gp.info = a["info"].ToString() ?? "";
                                         }
-                                        if (a.ContainsKey("roles")) {
+                                        if (a.ContainsKey("roles") && a.Keys.Count != 0) {
                                             gp.roles = ((JObject)a["roles"]).ToObject<Dictionary<string, groupRole>>() ?? gp.roles;
                                         }
                                         // backwards compat
