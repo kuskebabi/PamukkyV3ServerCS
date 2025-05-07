@@ -1907,8 +1907,15 @@ internal class Program
                                         if (a.ContainsKey("info") && (a["info"].ToString() ?? "").Trim() != "") {
                                             gp.info = a["info"].ToString() ?? "";
                                         }
-                                        if (a.ContainsKey("roles") && a.Keys.Count != 0) {
-                                            gp.roles = ((JObject)a["roles"]).ToObject<Dictionary<string, groupRole>>() ?? gp.roles;
+                                        if (a.ContainsKey("roles")) {
+                                            bool setroles = true;
+                                            var roles = ((JObject)a["roles"]).ToObject<Dictionary<string, groupRole>>() ?? gp.roles;
+                                            foreach (var member in gp.members.Values) {
+                                                if (!roles.ContainsKey(member.role)) {
+                                                    setroles = false;
+                                                }
+                                            }
+                                            if (setroles) gp.roles = roles;
                                         }
                                         // backwards compat
                                         Dictionary<string,string> response = new() {
@@ -2032,8 +2039,10 @@ internal class Program
                 Console.WriteLine(job);
                 using (var image = new MagickImage("data/upload/" + job + ".file"))
                 {
-                    image.Resize(thumbSize, thumbSize);
-                    image.Strip();
+                    if (image.Width > thumbSize || image.Height > thumbSize) {
+                        image.Resize(thumbSize, thumbSize);
+                        image.Strip();
+                    }
                     image.Quality = thumbQuality;
                     image.Write("data/upload/" + job + ".thumb");
                 }
