@@ -275,6 +275,7 @@ internal class Program
         public bool AllowSending = true;
         public bool AllowEditingUsers = true;
         public bool AllowSendingReactions = true;
+        public bool AllowPinningMessages = true;
     }
 
     class chatMessage { // Chat message.
@@ -285,6 +286,7 @@ internal class Program
         public List<string>? files;
         public string? forwardedfrom;
         public messageReactions reactions = new();
+        public bool pinned = false;
     }
     class messageReaction {
         public string reaction = "";
@@ -339,6 +341,7 @@ internal class Program
             files = msg.files;
             reactions = msg.reactions;
             forwardedfrom = msg.forwardedfrom;
+            pinned = msg.pinned;
             //senderuser = profileShort.fromProfile(GetUserProfile(sender));
             //if (forwardedfrom != null) {
             //    forwardedname = profileShort.fromProfile(GetUserProfile(forwardedfrom)).name;
@@ -383,6 +386,7 @@ internal class Program
             d["files"] = files;
             d["reactions"] = reactions;
             d["forwardedfrom"] = forwardedfrom;
+            d["pinned"] = pinned;
             //d["forwardedname"] = forwardedname;
             return d;
         }
@@ -538,11 +542,41 @@ internal class Program
             return new();
         }
 
+        public bool pinMessage(string msgid) {
+            if (ContainsKey(msgid)) {
+                this[msgid].pinned = !this[msgid].pinned;
+                chatMessageFormatted? f = formatMessage(msgid);
+                if (f != null) {
+                    Dictionary<string,object?> update = f.toDictionary();
+                    update["event"] = this[msgid].pinned ? "PINNED" : "UNPINNED";
+                    foreach (var updater in updates) {
+                        updater.Value[msgid] = update;
+                    }
+                }
+                if (formatcache.ContainsKey(msgid)) {
+                    formatcache[msgid].pinned = this[msgid].pinned;
+                }
+                return this[msgid].pinned;
+            }
+            return false;
+        }
+
+        public Chat getPinned() {
+            Chat rtrn = new() {chatid = chatid, mainchat = this};
+            foreach (var kv in this) {
+                if (kv.Value.pinned) {
+                    rtrn[kv.Key] = kv.Value;
+                }
+            }
+            return rtrn;
+        }
+
         public enum chatAction {
             Read,
             Send,
             React,
-            Delete
+            Delete,
+            Pin
         }
 
         public bool canDo(string user,chatAction action,string msgid = "") {
@@ -573,6 +607,7 @@ internal class Program
                 if (action == chatAction.React) return role.AllowSendingReactions;
                 if (action == chatAction.Send) return role.AllowSending;
                 if (action == chatAction.Delete) return role.AllowMessageDeleting;
+                if (action == chatAction.Pin) return role.AllowPinningMessages;
             }
             return true;
         }
@@ -1207,6 +1242,32 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
+                    }else if (url == "getpinnedmessages") {
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid")) {
+                            string? uid = GetUIDFromToken(a["token"]);
+                            if (uid != null) {
+                                Chat? chat = Chat.getChat(a["chatid"]);
+                                if (chat != null) {
+                                    if (chat.canDo(uid,Chat.chatAction.Read)) {
+                                        res = JsonConvert.SerializeObject(chat.getPinned().format());
+                                    }else {
+                                        statuscode = 401;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED","You don't have permission to do this action."));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT","Couldn't open chat. Is it valid????"));
+                                }
+                            }else {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                            }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
                     }else if (url == "sendmessage") {
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
@@ -1264,10 +1325,43 @@ internal class Program
                                         foreach (object msg in msgs) {
                                             string? msgid = msg.ToString() ?? "";
                                             if (chat.canDo(uid,Chat.chatAction.Delete,msgid)) {
-                                                if (chat.ContainsKey(msgid)) {
-                                                    chat.deleteMessage(msgid);
-                                                }
+                                                //if (chat.ContainsKey(msgid)) {
+                                                chat.deleteMessage(msgid);
+                                                //}
                                             }
+                                        }
+                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                    }else {
+                                        statuscode = 411;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                }
+                            }else {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                            }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
+                    }else if (url == "pinmessage") { //More like a toggle
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs")) {
+                            string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
+                            if (uid != null) {
+                                Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
+                                if (chat != null) {
+                                    if (a["msgs"] is JArray) {
+                                        var msgs = (JArray)a["msgs"];
+                                        foreach (object msg in msgs) {
+                                            string? msgid = msg.ToString() ?? "";
+                                                if (chat.canDo(uid,Chat.chatAction.Pin,msgid)) {
+                                                    chat.pinMessage(msgid);
+                                                }
                                         }
                                         res = JsonConvert.SerializeObject(new serverResponse("done"));
                                     }else {
@@ -1297,12 +1391,12 @@ internal class Program
                                     string? msgid = a["msgid"].ToString() ?? "";
                                     string? reaction = a["reaction"].ToString() ?? "";
                                     if (chat.canDo(uid,Chat.chatAction.React,msgid)) {
-                                        if (chat.ContainsKey(msgid)) {
-                                            res = JsonConvert.SerializeObject(chat.reactMessage(msgid,uid,reaction));
-                                        }else {
-                                            statuscode = 404;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOMSG", "Message not found"));
-                                        }
+                                        //if (chat.ContainsKey(msgid)) {
+                                        res = JsonConvert.SerializeObject(chat.reactMessage(msgid,uid,reaction));
+                                        //}else {
+                                        //    statuscode = 404;
+                                        //    res = JsonConvert.SerializeObject(new serverResponse("error", "NOMSG", "Message not found"));
+                                        //}
                                     }else {
                                         statuscode = 401;
                                         res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
@@ -1348,7 +1442,8 @@ internal class Program
                                             }
                                             res = JsonConvert.SerializeObject(new serverResponse("done"));
                                         }else {
-
+                                            statuscode = 401;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
                                         }
                                     }else {
                                         statuscode = 401;
@@ -1647,7 +1742,8 @@ internal class Program
                                                 AllowKicking = true,
                                                 AllowMessageDeleting = true,
                                                 AllowSending = true,
-                                                AllowSendingReactions = true
+                                                AllowSendingReactions = true,
+                                                AllowPinningMessages = true
                                             },
                                             ["Admin"] = new groupRole() {
                                                 AdminOrder = 1,
@@ -1657,7 +1753,8 @@ internal class Program
                                                 AllowKicking = true,
                                                 AllowMessageDeleting = true,
                                                 AllowSending = true,
-                                                AllowSendingReactions = true
+                                                AllowSendingReactions = true,
+                                                AllowPinningMessages = true
                                             },
                                             ["Moderator"] = new groupRole() {
                                                 AdminOrder = 2,
@@ -1667,7 +1764,8 @@ internal class Program
                                                 AllowKicking = true,
                                                 AllowMessageDeleting = true,
                                                 AllowSending = true,
-                                                AllowSendingReactions = true
+                                                AllowSendingReactions = true,
+                                                AllowPinningMessages = true
                                             },
                                             ["Normal"] = new groupRole() {
                                                 AdminOrder = 3,
@@ -1677,7 +1775,8 @@ internal class Program
                                                 AllowKicking = false,
                                                 AllowMessageDeleting = false,
                                                 AllowSending = true,
-                                                AllowSendingReactions = true
+                                                AllowSendingReactions = true,
+                                                AllowPinningMessages = false
                                             },
                                             ["Readonly"] = new groupRole() {
                                                 AdminOrder = 4,
@@ -1687,7 +1786,8 @@ internal class Program
                                                 AllowKicking = false,
                                                 AllowMessageDeleting = false,
                                                 AllowSending = false,
-                                                AllowSendingReactions = false
+                                                AllowSendingReactions = false,
+                                                AllowPinningMessages = false
                                             },
                                         }
                                     };
