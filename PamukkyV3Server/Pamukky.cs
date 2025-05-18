@@ -168,7 +168,7 @@ internal class Program
             return true; //Success!!
         }
 
-        public bool removeUser(string uid,string role = "Normal") {
+        public bool removeUser(string uid) {
             if (!members.ContainsKey(uid)) { // To not mess stuff up
                 return true;
             }
@@ -182,9 +182,23 @@ internal class Program
             return true; //Success!!
         }
 
+        public bool banUser(string uid) {
+            if (removeUser(uid)) {
+                if (!bannedMembers.Contains(uid)) {
+                    bannedMembers.Add(uid);
+                }
+                return true;
+            }
+            return false;
+        }
+
+        public void unbanUser(string uid) {
+            bannedMembers.Remove(uid);
+        }
+
         public enum groupAction {
             Kick,
-            Ban, //TODO
+            Ban,
             EditUser,
             EditGroup
         }
@@ -217,6 +231,8 @@ internal class Program
                 if (action == groupAction.EditUser) return role.AllowEditingUsers && role.AdminOrder <= trole.AdminOrder;
                 if (action == groupAction.Kick) return role.AllowKicking && role.AdminOrder < trole.AdminOrder;
                 if (action == groupAction.Ban) return role.AllowBanning && role.AdminOrder < trole.AdminOrder;
+            }else {
+                if (action == groupAction.Ban) return role.AllowBanning;
             }
 
             return false;
@@ -831,7 +847,7 @@ internal class Program
     }
 
     static void removeFromChats(List<chatItem> list, string chatid) { //Remove from chats list
-        var itm = list.Where(i => i.chatid == chatid).FirstOrDefault();
+        var itm = list.Where(i => (i.chatid ?? i.group ?? "") == chatid).FirstOrDefault();
         if (itm != null) list.Remove(itm);
     }
 
@@ -1126,7 +1142,7 @@ internal class Program
                                             item.info = profileShort.fromGroup(p);
                                         }*/
 
-                                        Chat? chat = Chat.getChat(item.chatid ?? item.group);
+                                        Chat? chat = Chat.getChat(item.chatid ?? item.group ?? "");
                                         if (chat != null) {
                                             if (chat.canDo(uid,Chat.chatAction.Read)) { //Check for read permission before giving the last message
                                                 item.lastmessage = chat.getLastMessage();
@@ -1870,6 +1886,21 @@ internal class Program
                             statuscode = 411;
                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                         }
+                    }else if (url == "getbannedgroupmembers") { //getgroupmembers is new name
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                        if (a != null && a.ContainsKey("groupid")) {
+                            Group? gp = Group.get(a["groupid"]);
+                            if (gp != null) {
+                                res = JsonConvert.SerializeObject(gp.bannedMembers);
+                            }else {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                            }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
                     }else if (url == "getgroupuserscount" || url == "getgroupmemberscount") { //getgroupmemberscount is new name
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
@@ -2000,6 +2031,65 @@ internal class Program
                                             statuscode = 500;
                                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                                         }
+                                    }else {
+                                        statuscode = 403;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                            }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
+                    }else if (url == "banuser") {
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
+                            string? uid = GetUIDFromToken(a["token"]);
+                            if (uid != null) {
+                                Group? gp = Group.get(a["groupid"]);
+                                if (gp != null) {
+                                    if (gp.canDo(uid,Group.groupAction.Ban,a["uid"] ?? "")) {
+                                        if (gp.banUser(a["uid"] ?? "")) {
+                                            gp.save();
+                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                        }else {
+                                            statuscode = 500;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                        }
+                                    }else {
+                                        statuscode = 403;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                            }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
+                    }else if (url == "unbanuser") {
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
+                            string? uid = GetUIDFromToken(a["token"]);
+                            if (uid != null) {
+                                Group? gp = Group.get(a["groupid"]);
+                                if (gp != null) {
+                                    if (gp.canDo(uid,Group.groupAction.Ban,a["uid"] ?? "")) {
+                                        gp.unbanUser(a["uid"] ?? "");
+                                        gp.save();
                                     }else {
                                         statuscode = 403;
                                         res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
