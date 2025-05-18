@@ -130,8 +130,8 @@ internal class Program
             if (groupsCache.ContainsKey(gid)) {
                 return groupsCache[gid];
             }
-            if (File.Exists("data/group/" + gid + "/info")) {
-                Group? g = JsonConvert.DeserializeObject<Group>(File.ReadAllText("data/group/" + gid + "/info"));
+            if (File.Exists("data/info/" + gid + "/info")) {
+                Group? g = JsonConvert.DeserializeObject<Group>(File.ReadAllText("data/info/" + gid + "/info"));
                 if (g != null) {
                     g.groupID = gid;
                     groupsCache[gid] = g;
@@ -161,8 +161,7 @@ internal class Program
             };
             chatItem g = new() { // New chats list item
                 group = groupID,
-                type = "group",
-                chatid = groupID
+                type = "group"
             };
             addToChats(clist,g); //Add to their chats list
             saveUserChats(uid,clist); //Save their chats list
@@ -248,9 +247,9 @@ internal class Program
         }
 
         public void save() {
-            Directory.CreateDirectory("data/group/" + groupID);
+            Directory.CreateDirectory("data/info/" + groupID);
             string c = JsonConvert.SerializeObject(this);
-            File.WriteAllTextAsync("data/group/" + groupID + "/info",c);
+            File.WriteAllTextAsync("data/info/" + groupID + "/info",c);
         }
     }
 
@@ -619,14 +618,14 @@ internal class Program
             //Check validity
             if (chat.Contains("-")) {
                 string[] spl = chat.Split("-");
-                if (!Directory.Exists("data/user/" + spl[0])) {
+                if (!Directory.Exists("data/info/" + spl[0])) {
                     return null;
                 }
-                if (!Directory.Exists("data/user/" + spl[1])) {
+                if (!Directory.Exists("data/info/" + spl[1])) {
                     return null;
                 }
             }else {
-                if (!Directory.Exists("data/group/" + chat)) {
+                if (!Directory.Exists("data/info/" + chat)) {
                     return null;
                 }
             }
@@ -671,7 +670,7 @@ internal class Program
     }
 
     class chatItem { //Chats list item
-        public string chatid = "";
+        public string? chatid;
         public string type = "";
 
         // Optional because depends on it's type.
@@ -679,7 +678,7 @@ internal class Program
         public string? group = null;
 
         //for preview at chats list, TODO: SET NULL BEFORE SAVE
-        public profileShort? info = null;
+        //public profileShort? info = null;
         public chatMessage? lastmessage = null;
     }
 
@@ -745,7 +744,7 @@ internal class Program
         if (userstatus.ContainsKey(uid)) {
             return userstatus[uid];
         }else {
-            if (File.Exists("data/user/" + uid + "/profile")) { // check
+            if (File.Exists("data/info/" + uid + "/profile")) { // check
                 userStatus us = new userStatus();
                 userstatus[uid] = us;
                 return us;
@@ -758,8 +757,8 @@ internal class Program
         if (userProfileCache.ContainsKey(uid)) {
             return userProfileCache[uid];
         }else {
-            if (File.Exists("data/user/" + uid + "/profile")) { // check
-                userProfile? up = JsonConvert.DeserializeObject<userProfile>(File.ReadAllText("data/user/" + uid + "/profile"));
+            if (File.Exists("data/info/" + uid + "/profile")) { // check
+                userProfile? up = JsonConvert.DeserializeObject<userProfile>(File.ReadAllText("data/info/" + uid + "/profile"));
                 if (up != null) {
                     userProfileCache[uid] = up;
                     return up;
@@ -771,7 +770,7 @@ internal class Program
 
     static void SetUserProfile(string uid,userProfile up) {
         userProfileCache[uid] = up; //set
-        File.WriteAllTextAsync("data/user/" + uid + "/profile", JsonConvert.SerializeObject(up)); //save
+        File.WriteAllTextAsync("data/info/" + uid + "/profile", JsonConvert.SerializeObject(up)); //save
     }
 
     static loginCred? GetLoginCred(string token, bool preventbypass = true) {
@@ -805,14 +804,14 @@ internal class Program
         if (userChatsCache.ContainsKey(uid)) { // Use cache
             return userChatsCache[uid];
         }else { //Load it from file
-            if (File.Exists("data/user/" + uid + "/chatslist")) {
-                List<chatItem>? uc = JsonConvert.DeserializeObject<List<chatItem>>(File.ReadAllText("data/user/" + uid + "/chatslist"));
+            if (File.Exists("data/info/" + uid + "/chatslist")) {
+                List<chatItem>? uc = JsonConvert.DeserializeObject<List<chatItem>>(File.ReadAllText("data/info/" + uid + "/chatslist"));
                 if (uc != null) {
                     userChatsCache[uid] = uc;
                     return uc;
                 }
             }else {
-                if (Directory.Exists("data/user/" + uid)) {
+                if (Directory.Exists("data/info/" + uid)) {
                     return new List<chatItem>();
                 }
             }
@@ -838,7 +837,7 @@ internal class Program
 
     static void saveUserChats(string uid, List<chatItem> list) { //Chats list
         userChatsCache[uid] = list;
-        File.WriteAllText("data/user/" + uid + "/chatslist", JsonConvert.SerializeObject(list));
+        File.WriteAllText("data/info/" + uid + "/chatslist", JsonConvert.SerializeObject(list));
     }
 
 
@@ -878,7 +877,7 @@ internal class Program
                                         {
                                             uid = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
                                         }
-                                        while (Directory.Exists("data/user/" + uid));
+                                        while (Directory.Exists("data/info/" + uid));
 
                                         a.Password = hashpassword(a.Password,uid);
 
@@ -894,7 +893,7 @@ internal class Program
 
                                         //Console.WriteLine(a.Password);
                                         userProfile up = new() {name = a.EMail.Split("@")[0].Split(".")[0]};
-                                        Directory.CreateDirectory("data/user/" + uid);
+                                        Directory.CreateDirectory("data/info/" + uid);
                                         string astr = JsonConvert.SerializeObject(a);
                                         //File.WriteAllText("data/auth/" + token, astr);
                                         loginCreds[token] = a;
@@ -1127,7 +1126,7 @@ internal class Program
                                             item.info = profileShort.fromGroup(p);
                                         }*/
 
-                                        Chat? chat = Chat.getChat(item.chatid);
+                                        Chat? chat = Chat.getChat(item.chatid ?? item.group);
                                         if (chat != null) {
                                             if (chat.canDo(uid,Chat.chatAction.Read)) { //Check for read permission before giving the last message
                                                 item.lastmessage = chat.getLastMessage();
@@ -1136,7 +1135,7 @@ internal class Program
                                     }
                                     res = JsonConvert.SerializeObject(chats);
                                     foreach (chatItem item in chats) {
-                                        item.info = null;
+                                        //item.info = null;
                                         item.lastmessage = null;
                                     }
                                 }else {
@@ -1725,7 +1724,7 @@ internal class Program
                                     {
                                         id =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
                                     }
-                                    while (Directory.Exists("data/groups/" + id));
+                                    while (Directory.Exists("data/infos/" + id));
                                     Group g = new() {
                                         groupID = id,
                                         name = a["name"].Trim(),
@@ -1823,6 +1822,34 @@ internal class Program
                             }else {
                                 statuscode = 404;
                                 res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                            }
+                        }else {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }
+                    }else if (url == "getinfo") {
+                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
+                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                        if (a != null && a.ContainsKey("id")) {
+                            if (a["id"] == "0") {
+                                res = pamukProfile;
+                            }else {
+                                userProfile? up = GetUserProfile(a["id"]);
+                                if (up != null) {
+                                    res = JsonConvert.SerializeObject(up);
+                                }else {
+                                    Group? gp = Group.get(a["id"]);
+                                    if (gp != null) {
+                                        res = JsonConvert.SerializeObject(new groupInfo() {
+                                            name = gp.name,
+                                            info = gp.info,
+                                            picture = gp.picture
+                                        });
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                    }
+                                }
                             }
                         }else {
                             statuscode = 411;
@@ -2175,11 +2202,10 @@ internal class Program
         Console.WriteLine("Pamukky V3 Server C# REWRITE");
         //Create save folders
         Directory.CreateDirectory("data");
-        Directory.CreateDirectory("data/user");
         Directory.CreateDirectory("data/auth");
         Directory.CreateDirectory("data/chat");
         Directory.CreateDirectory("data/upload");
-        Directory.CreateDirectory("data/group");
+        Directory.CreateDirectory("data/info");
         // Start the server
         _httpListener.Prefixes.Add("http://*:" + HTTPport + "/"); //http prefix
         _httpListener.Prefixes.Add("https://*:" + HTTPSport + "/"); //https prefix
