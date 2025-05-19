@@ -63,16 +63,31 @@ internal class Program
     class userStatus {
         public string typingChat = "";
         private DateTime? typetime;
-        public bool getTyping(string chatid) {
+        public string user;
+        /*public bool getTyping(string chatid) {
             if (typetime == null) {
                 return false;
             }else {
                 return typetime.Value.AddSeconds(3) > DateTime.Now && chatid == typingChat;
             }
+        }*/
+        public userStatus(string uid) {
+            user = uid;
         }
+
         public void setTyping(string chatid) {
-            typetime = DateTime.Now;
-            typingChat = chatid;
+            Chat? chat = Chat.getChat(chatid);
+            if (chat != null) {
+                typetime = DateTime.Now;
+                typingChat = chatid;
+                chat.setTyping(user);
+                Task.Delay(3100).ContinueWith((task) => { // automatically set user as not typing.
+                    if (chatid == typingChat && !(typetime.Value.AddSeconds(3) > DateTime.Now)) {
+                        typetime = null;
+                        chat.remTyping(user);
+                    }
+                });
+            }
         }
     }
 
@@ -122,6 +137,7 @@ internal class Program
         public string info = "";
         public string owner = ""; //The creator, not the current one
         public string time = ""; //Creation time
+        public bool publicgroup = false; //Can the group be read without joining?
         public Dictionary<string, groupMember> members = new();
         public Dictionary<string, groupRole> roles = new();
         public List<string> bannedMembers = new();
@@ -200,10 +216,13 @@ internal class Program
             Kick,
             Ban,
             EditUser,
-            EditGroup
+            EditGroup,
+            Read
         }
 
         public bool canDo(string user,groupAction action,string? target = null) {
+            if (action == groupAction.Read && publicgroup) return true;
+
             bool contains = false;
             groupMember? u = null;
             groupMember? tu = null;
@@ -220,6 +239,7 @@ internal class Program
             if (!contains || u == null) { // Doesn't exist? block
                 return false;
             }
+            if (action == groupAction.Read) return true;
 
             // Get the role
             groupRole role = roles[u.role];
@@ -273,6 +293,7 @@ internal class Program
         public string name = "";
         public string picture = "";
         public string info = "";
+        public bool publicgroup = false;
     }
 
     class groupMember {
@@ -415,18 +436,20 @@ internal class Program
         private const int pagesize = 48; //Increase this to get more messages
         private Dictionary<string,Dictionary<string,Dictionary<string,object?>>> updates = new();
         private Dictionary<string,chatMessageFormatted> formatcache = new();
+        List<string> typingUsers = new();
 
         public List<string> getTyping() {
-            List<string> res = new();
-            foreach (string user in group.members.Keys) {
-                var status = getuserstatus(user);
-                if (status != null) {
-                    if (status.getTyping(chatid)) {
-                        res.Add(user);
-                    }
-                }
+            return typingUsers;
+        }
+
+        public void setTyping(string uid) {
+            if (!typingUsers.Contains(uid)) {
+                typingUsers.Add(uid);
             }
-            return res;
+        }
+
+        public void remTyping(string uid) {
+            typingUsers.Remove(uid);
         }
 
         public void addupdater(string name) {
@@ -595,6 +618,8 @@ internal class Program
         }
 
         public bool canDo(string user,chatAction action,string msgid = "") {
+            if (action == chatAction.Read && group.publicgroup) return true;
+
             bool contains = false;
             groupMember? u = null;
             foreach (var member in group.members) { //find the user
@@ -761,7 +786,7 @@ internal class Program
             return userstatus[uid];
         }else {
             if (File.Exists("data/info/" + uid + "/profile")) { // check
-                userStatus us = new userStatus();
+                userStatus us = new userStatus(uid);
                 userstatus[uid] = us;
                 return us;
             }
@@ -1828,13 +1853,20 @@ internal class Program
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("groupid")) {
+                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                             Group? gp = Group.get(a["groupid"]);
                             if (gp != null) {
-                                res = JsonConvert.SerializeObject(new groupInfo() {
-                                    name = gp.name,
-                                    info = gp.info,
-                                    picture = gp.picture
-                                });
+                                if (gp.canDo(uid, Group.groupAction.Read)) {
+                                    res = JsonConvert.SerializeObject(new groupInfo() {
+                                        name = gp.name,
+                                        info = gp.info,
+                                        picture = gp.picture,
+                                        publicgroup = gp.publicgroup
+                                    });
+                                }else {
+                                    statuscode = 403;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                }
                             }else {
                                 statuscode = 404;
                                 res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
@@ -1847,6 +1879,7 @@ internal class Program
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("id")) {
+                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                             if (a["id"] == "0") {
                                 res = pamukProfile;
                             }else {
@@ -1856,11 +1889,17 @@ internal class Program
                                 }else {
                                     Group? gp = Group.get(a["id"]);
                                     if (gp != null) {
-                                        res = JsonConvert.SerializeObject(new groupInfo() {
-                                            name = gp.name,
-                                            info = gp.info,
-                                            picture = gp.picture
-                                        });
+                                        if (gp.canDo(uid, Group.groupAction.Read)) {
+                                            res = JsonConvert.SerializeObject(new groupInfo() {
+                                                name = gp.name,
+                                                info = gp.info,
+                                                picture = gp.picture,
+                                                publicgroup = gp.publicgroup
+                                            });
+                                        }else {
+                                            statuscode = 403;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                        }
                                     }else {
                                         statuscode = 404;
                                         res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
@@ -1875,9 +1914,15 @@ internal class Program
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("groupid")) {
+                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                             Group? gp = Group.get(a["groupid"]);
                             if (gp != null) {
-                                res = JsonConvert.SerializeObject(gp.members);
+                                if (gp.canDo(uid, Group.groupAction.Read)) {
+                                    res = JsonConvert.SerializeObject(gp.members);
+                                }else {
+                                    statuscode = 403;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                }
                             }else {
                                 statuscode = 404;
                                 res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
@@ -1890,9 +1935,15 @@ internal class Program
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("groupid")) {
+                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                             Group? gp = Group.get(a["groupid"]);
                             if (gp != null) {
-                                res = JsonConvert.SerializeObject(gp.bannedMembers);
+                                if (gp.canDo(uid, Group.groupAction.Read)) {
+                                    res = JsonConvert.SerializeObject(gp.bannedMembers);
+                                }else {
+                                    statuscode = 403;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                }
                             }else {
                                 statuscode = 404;
                                 res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
@@ -1906,8 +1957,14 @@ internal class Program
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("groupid")) {
                             Group? gp = Group.get(a["groupid"]);
+                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                             if (gp != null) {
-                                res = gp.members.Count.ToString();
+                                if (gp.canDo(uid, Group.groupAction.Read)) {
+                                    res = gp.members.Count.ToString();
+                                }else {
+                                    statuscode = 403;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                }
                             }else {
                                 statuscode = 404;
                                 res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
@@ -1920,9 +1977,15 @@ internal class Program
                         var body = new StreamReader(context.Request.InputStream).ReadToEnd();
                         var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                         if (a != null && a.ContainsKey("groupid")) {
+                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                             Group? gp = Group.get(a["groupid"]);
                             if (gp != null) {
-                                res = JsonConvert.SerializeObject(gp.roles);
+                                if (gp.canDo(uid, Group.groupAction.Read)) {
+                                    res = JsonConvert.SerializeObject(gp.roles);
+                                }else {
+                                    statuscode = 403;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                }
                             }else {
                                 statuscode = 404;
                                 res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
@@ -1943,8 +2006,22 @@ internal class Program
                                     if (role != null) {
                                         res = JsonConvert.SerializeObject(role);
                                     }else {
-                                        statuscode = 404;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                        if (gp.publicgroup) {
+                                            res = JsonConvert.SerializeObject(new groupRole() {
+                                                AdminOrder = -1,
+                                                AllowBanning = false,
+                                                AllowEditingSettings = false,
+                                                AllowEditingUsers = false,
+                                                AllowKicking = false,
+                                                AllowMessageDeleting = false,
+                                                AllowSending = false,
+                                                AllowSendingReactions = false,
+                                                AllowPinningMessages = false
+                                            });
+                                        }else {
+                                            statuscode = 404;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                        }
                                     }
                                 }else {
                                     statuscode = 404;
@@ -2118,11 +2195,14 @@ internal class Program
                                         if (a.ContainsKey("name") && (a["name"].ToString() ?? "").Trim() != "") {
                                             gp.name = a["name"].ToString() ?? "";
                                         }
-                                        if (a.ContainsKey("picture") && (a["picture"].ToString() ?? "").Trim() != "") {
+                                        if (a.ContainsKey("picture")) {
                                             gp.picture = a["picture"].ToString() ?? "";
                                         }
                                         if (a.ContainsKey("info") && (a["info"].ToString() ?? "").Trim() != "") {
                                             gp.info = a["info"].ToString() ?? "";
+                                        }
+                                        if (a.ContainsKey("publicgroup") && a["publicgroup"] is bool) {
+                                            gp.publicgroup = (bool)a["publicgroup"];
                                         }
                                         if (a.ContainsKey("roles")) {
                                             bool setroles = true;
