@@ -434,13 +434,9 @@ internal class Program
         public bool isgroup = false;
         Group group = new();
         private const int pagesize = 48; //Increase this to get more messages
-        private Dictionary<string,Dictionary<string,Dictionary<string,object?>>> updates = new();
+        public Dictionary<string,Dictionary<string,object?>> updates = new();
         private Dictionary<string,chatMessageFormatted> formatcache = new();
-        List<string> typingUsers = new();
-
-        public List<string> getTyping() {
-            return typingUsers;
-        }
+        public List<string> typingUsers = new();
 
         public void setTyping(string uid) {
             if (!typingUsers.Contains(uid)) {
@@ -452,25 +448,12 @@ internal class Program
             typingUsers.Remove(uid);
         }
 
-        public void addupdater(string name) {
-            if (!updates.ContainsKey(name)) {
-                updates[name] = new();
-            }
-        }
-        public Dictionary<string,Dictionary<string,object?>>? getupdater(string name) {
-            if (updates.ContainsKey(name)) {
-                List<string> keys = new();
-                foreach (string key in updates[name].Keys) {
-                    keys.Add(key);
-                }
-                Task.Delay(5000).ContinueWith((task) => { //remove updater keys after delay so all clients can see it before it gets kaboom
-                    foreach (string key in keys) {
-                        updates[name].Remove(key);
-                    }
-                });
-                return updates[name];
-            }
-            return null;
+        void addupdate(string id, Dictionary<string,object?> update) {
+            updates[id] = update;
+
+            Task.Delay(6000).ContinueWith((task) => { //remove updater keys after delay so it doesn't stay too much.
+                updates.Remove(id);
+            });
         }
 
         private chatMessageFormatted? formatMessage(string key) {
@@ -530,9 +513,7 @@ internal class Program
             if (f != null) {
                 Dictionary<string,object?> update = f.toDictionary();
                 update["event"] = "NEWMESSAGE";
-                foreach (var updater in updates) {
-                    updater.Value[id] = update;
-                }
+                addupdate(id, update);
                 if (notify)
                 foreach (string member in group.members.Keys) {
                     if (msg.sender != member)
@@ -552,9 +533,7 @@ internal class Program
             Remove(msgid);
             Dictionary<string,object?> update = new();
             update["event"] = "DELETED";
-            foreach (var updater in updates) {
-                updater.Value[msgid] = update;
-            }
+            addupdate(msgid, update);
         }
 
         public messageReactions reactMessage(string msgid, string uid, string reaction) {
@@ -572,9 +551,7 @@ internal class Program
                 Dictionary<string,object?> update = new();
                 update["event"] = "REACTIONS";
                 update["rect"] = rect;
-                foreach (var updater in updates) {
-                    updater.Value[msgid] = update;
-                }
+                addupdate(msgid, update);
                 return rect;
             }
             return new();
@@ -587,9 +564,7 @@ internal class Program
                 if (f != null) {
                     Dictionary<string,object?> update = f.toDictionary();
                     update["event"] = this[msgid].pinned ? "PINNED" : "UNPINNED";
-                    foreach (var updater in updates) {
-                        updater.Value[msgid] = update;
-                    }
+                    addupdate(msgid, update);
                 }
                 if (formatcache.ContainsKey(msgid)) {
                     formatcache[msgid].pinned = this[msgid].pinned;
@@ -882,154 +857,151 @@ internal class Program
     }
 
 
-    static void respond()
+    static void respond(HttpListenerContext context)
     {
-        Task<HttpListenerContext> ctx = _httpListener.GetContextAsync();
-        ctx.ContinueWith((Task<HttpListenerContext> c) =>
-        {
-            if (c.IsCompletedSuccessfully) { //Sometimes crashed when server exited, so added this
-                var context = c.Result;
-                if (context.Request.Url == null) { //just ignore
-                    return;
-                }
-                string res = "";
-                int statuscode = 200;
-                string[] spl = context.Request.Url.ToString().Split("/");
-                string url = spl[spl.Length - 1];
-                bool writeRes = true;
-                //Added these so web client can access it
-                context.Response.AddHeader("Access-Control-Allow-Headers", "*");
-                context.Response.AddHeader("Access-Control-Allow-Methods", "*");
-                context.Response.AddHeader("Access-Control-Allow-Origin", "*");
-                //Console.WriteLine(url); //debugging
-                try {
-                    if (url == "signup") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<loginCred>(body);
-                        if (a != null) {
-                            a.EMail = a.EMail.Trim();
-                            if (!File.Exists("data/auth/" + a.EMail)) {
-                                // Check the email format. TODO: maybe improve
-                                if (a.EMail != "" && a.EMail.Contains("@") && a.EMail.Contains(".") && !a.EMail.Contains(" ")) {
-                                    // IDK, why limit password characters? I mean also just get creative and dont make your password "      "
-                                    if (a.Password.Trim() != "" && a.Password.Length >= 6) {
-                                        string uid = "";
-                                        do 
-                                        {
-                                            uid = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
-                                        }
-                                        while (Directory.Exists("data/info/" + uid));
+        if (context.Request.Url == null) { //just ignore
+            return;
+        }
+        string res = "";
+        int statuscode = 200;
+        string[] spl = context.Request.Url.ToString().Split("/");
+        string url = spl[spl.Length - 1];
+        bool writeRes = true;
+        //Added these so web client can access it
+        context.Response.AddHeader("Access-Control-Allow-Headers", "*");
+        context.Response.AddHeader("Access-Control-Allow-Methods", "*");
+        context.Response.AddHeader("Access-Control-Allow-Origin", "*");
+        //Console.WriteLine(url); //debugging
 
-                                        a.Password = hashpassword(a.Password,uid);
+        if (!(url == "upload" && context.Request.HttpMethod.ToLower() == "post")) {
+            new StreamReader(context.Request.InputStream).ReadToEndAsync().ContinueWith((Task<string> bdy) =>
+            {
+                if (bdy.IsCompletedSuccessfully) {
+                    string body = bdy.Result;
+                    try {
+                        if (url == "signup") {
+                            var a = JsonConvert.DeserializeObject<loginCred>(body);
+                            if (a != null) {
+                                a.EMail = a.EMail.Trim();
+                                if (!File.Exists("data/auth/" + a.EMail)) {
+                                    // Check the email format. TODO: maybe improve
+                                    if (a.EMail != "" && a.EMail.Contains("@") && a.EMail.Contains(".") && !a.EMail.Contains(" ")) {
+                                        // IDK, why limit password characters? I mean also just get creative and dont make your password "      "
+                                        if (a.Password.Trim() != "" && a.Password.Length >= 6) {
+                                            string uid = "";
+                                            do
+                                            {
+                                                uid = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                                            }
+                                            while (Directory.Exists("data/info/" + uid));
 
-                                        string token = "";
-                                        do 
-                                        {
-                                            token = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
-                                        }
-                                        while (loginCreds.ContainsKey(token));
+                                            a.Password = hashpassword(a.Password,uid);
 
-                                        a.userID = uid;
-                                        //a.token = token;
+                                            string token = "";
+                                            do
+                                            {
+                                                token = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                                            }
+                                            while (loginCreds.ContainsKey(token));
 
-                                        //Console.WriteLine(a.Password);
-                                        userProfile up = new() {name = a.EMail.Split("@")[0].Split(".")[0]};
-                                        Directory.CreateDirectory("data/info/" + uid);
-                                        string astr = JsonConvert.SerializeObject(a);
-                                        //File.WriteAllText("data/auth/" + token, astr);
-                                        loginCreds[token] = a;
-                                        File.WriteAllText("data/auth/" + a.EMail, astr);
-                                        SetUserProfile(uid,up);
-                                        List<chatItem>? chats = GetUserChats(uid); //get new user's chats list
-                                        if (chats != null) {
-                                            chatItem savedmessages = new() { //automatically add saved messages for the user.
-                                                user = uid,
-                                                type = "user",
-                                                chatid = uid + "-" + uid
-                                            };
-                                            addToChats(chats,savedmessages);
-                                            saveUserChats(uid,chats); //save it
+                                            a.userID = uid;
+                                            //a.token = token;
+
+                                            //Console.WriteLine(a.Password);
+                                            userProfile up = new() {name = a.EMail.Split("@")[0].Split(".")[0]};
+                                            Directory.CreateDirectory("data/info/" + uid);
+                                            string astr = JsonConvert.SerializeObject(a);
+                                            //File.WriteAllText("data/auth/" + token, astr);
+                                            loginCreds[token] = a;
+                                            File.WriteAllText("data/auth/" + a.EMail, astr);
+                                            SetUserProfile(uid,up);
+                                            List<chatItem>? chats = GetUserChats(uid); //get new user's chats list
+                                            if (chats != null) {
+                                                chatItem savedmessages = new() { //automatically add saved messages for the user.
+                                                    user = uid,
+                                                    type = "user",
+                                                    chatid = uid + "-" + uid
+                                                };
+                                                addToChats(chats,savedmessages);
+                                                saveUserChats(uid,chats); //save it
+                                            }else {
+                                                Console.WriteLine("Signup chatslist was null!!!"); //log if weirdo
+                                            }
+                                            //Done
+                                            res = JsonConvert.SerializeObject(new loginResponse(token,uid));
                                         }else {
-                                            Console.WriteLine("Signup chatslist was null!!!"); //log if weirdo
+                                            statuscode = 411;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "WPFORMAT", "Password format wrong."));
                                         }
-                                        //Done
-                                        res = JsonConvert.SerializeObject(new loginResponse(token,uid));
                                     }else {
                                         statuscode = 411;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "WPFORMAT", "Password format wrong."));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "WEFORMAT", "Invalid E-Mail."));
                                     }
                                 }else {
-                                    statuscode = 411;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "WEFORMAT", "Invalid E-Mail."));
+                                    statuscode = 401;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "USEREXISTS", "User already exists."));
                                 }
+
                             }else {
-                                statuscode = 401;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "USEREXISTS", "User already exists."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                            
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                        
-                    }else if (url == "login") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<loginCred>(body);
-                        if (a != null) {
-                            a.EMail = a.EMail.Trim();
-                            if (File.Exists("data/auth/" + a.EMail)) {
-                                loginCred? lc = JsonConvert.DeserializeObject<loginCred>(File.ReadAllText("data/auth/" + a.EMail));
-                                if (lc != null) {
-                                    string uid = lc.userID;
-                                    a.Password = hashpassword(a.Password,uid);
-                                    if (lc.Password == a.Password && lc.EMail == a.EMail) {
-                                        //Console.WriteLine("Logging in...");
-                                        string token = "";
-                                        do
-                                        {
-                                            //Console.WriteLine("Generating token...");
-                                            token =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                        }else if (url == "login") {
+                            var a = JsonConvert.DeserializeObject<loginCred>(body);
+                            if (a != null) {
+                                a.EMail = a.EMail.Trim();
+                                if (File.Exists("data/auth/" + a.EMail)) {
+                                    loginCred? lc = JsonConvert.DeserializeObject<loginCred>(File.ReadAllText("data/auth/" + a.EMail));
+                                    if (lc != null) {
+                                        string uid = lc.userID;
+                                        a.Password = hashpassword(a.Password,uid);
+                                        if (lc.Password == a.Password && lc.EMail == a.EMail) {
+                                            //Console.WriteLine("Logging in...");
+                                            string token = "";
+                                            do
+                                            {
+                                                //Console.WriteLine("Generating token...");
+                                                token =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                                            }
+                                            while (loginCreds.ContainsKey(token));
+                                            //Console.WriteLine("Generated token");
+                                            loginCreds[token] = lc;
+                                            //Console.WriteLine("Respond");
+                                            res = JsonConvert.SerializeObject(new loginResponse(token,uid));
+                                        }else {
+                                            statuscode = 403;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "WRONGLOGIN","Incorrect login"));
                                         }
-                                        while (loginCreds.ContainsKey(token));
-                                        //Console.WriteLine("Generated token");
-                                        loginCreds[token] = lc;
-                                        //Console.WriteLine("Respond");
-                                        res = JsonConvert.SerializeObject(new loginResponse(token,uid));
                                     }else {
-                                        statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "WRONGLOGIN","Incorrect login"));
+                                        statuscode = 411;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
                                     }
                                 }else {
-                                    statuscode = 411;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
+
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                            
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "changepassword") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("password") && a.ContainsKey("oldpassword")) {
-                            if (a["password"].Trim().Length >= 6) {
-                                loginCred? lc = GetLoginCred(a["token"]);
-                                if (lc != null) {
-                                    if (lc.Password == hashpassword(a["oldpassword"],lc.userID)) {
-                                        /*string token = "";
-                                         *                   do
-                                         *                   {
-                                         *                       token =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                        }else if (url == "changepassword") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("password") && a.ContainsKey("oldpassword")) {
+                                if (a["password"].Trim().Length >= 6) {
+                                    loginCred? lc = GetLoginCred(a["token"]);
+                                    if (lc != null) {
+                                        if (lc.Password == hashpassword(a["oldpassword"],lc.userID)) {
+                                            /*string token = "";
+                                                *                   do
+                                                *                   {
+                                                *                       token =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
                                         }
                                         while (loginCreds.ContainsKey(token));*/
-                                        //File.Delete("data/auth/" + lc.token);
-                                        //lc.token = token;
-                                        lc.Password = hashpassword(a["password"].Trim(),lc.userID);
-                                        string astr = JsonConvert.SerializeObject(lc);
+                                            //File.Delete("data/auth/" + lc.token);
+                                            //lc.token = token;
+                                            lc.Password = hashpassword(a["password"].Trim(),lc.userID);
+                                            string astr = JsonConvert.SerializeObject(lc);
                                         //File.WriteAllText("data/auth/" + token, astr);
                                         File.WriteAllText("data/auth/" + lc.EMail, astr);
                                         //Find other logins
@@ -1039,297 +1011,485 @@ internal class Program
                                             loginCreds.Remove(token.Key);
                                         }
                                         res = astr;
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER","User doesn't exist."));
                                     }
                                 }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER","User doesn't exist."));
+                                    statuscode = 411;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "WPFORMAT", "Password format wrong."));
                                 }
                             }else {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "WPFORMAT", "Password format wrong."));
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "logout") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token")) {
-                            loginCreds.Remove(a["token"]);
-                            res = JsonConvert.SerializeObject(new serverResponse("done"));
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getuser") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("uid")) {
-                            if (a["uid"] == "0") {
-                                res = pamukProfile;
+                        }else if (url == "logout") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token")) {
+                                loginCreds.Remove(a["token"]);
+                                res = JsonConvert.SerializeObject(new serverResponse("done"));
                             }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "getuser") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("uid")) {
+                                if (a["uid"] == "0") {
+                                    res = pamukProfile;
+                                }else {
+                                    userProfile? up = GetUserProfile(a["uid"]);
+                                    if (up != null) {
+                                        res = JsonConvert.SerializeObject(up);
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                    }
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "getonline") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("uid")) {
                                 userProfile? up = GetUserProfile(a["uid"]);
                                 if (up != null) {
-                                    res = JsonConvert.SerializeObject(up);
-                                }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                                }
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getonline") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("uid")) {
-                            userProfile? up = GetUserProfile(a["uid"]);
-                            if (up != null) {
-                                res = up.getOnline();
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "setonline") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                userProfile? user = GetUserProfile(uid);
-                                if (user != null) {
-                                    user.setOnline();
+                                    res = up.getOnline();
                                 }else {
                                     statuscode = 404;
                                     res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "updateuser") { //User profile edit
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                userProfile? user = GetUserProfile(uid);
-                                if (user != null) {
-                                    if (a.ContainsKey("name") && a["name"].Trim() != "") {
-                                        user.name = a["name"].Trim().Replace("\n","");
+                        }else if (url == "setonline") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    userProfile? user = GetUserProfile(uid);
+                                    if (user != null) {
+                                        user.setOnline();
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                     }
-                                    if (!a.ContainsKey("picture")) {
-                                        a["picture"] = "";
-                                    }
-                                    if (!a.ContainsKey("description")) {
-                                        a["description"] = "";
-                                    }
-                                    user.picture = a["picture"];
-                                    user.description = a["description"].Trim();
-                                    SetUserProfile(uid, user);
-                                    res = JsonConvert.SerializeObject(new serverResponse("done"));
                                 }else {
                                     statuscode = 404;
                                     res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getchatslist") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                List<chatItem>? chats = GetUserChats(uid);
-                                if (chats != null) {
-                                    foreach (chatItem item in chats) { //Format chats for clients
-                                        /*if (item.type == "user") { //Info
-                                            var p = GetUserProfile(item.user ?? "");
-                                            item.info = profileShort.fromProfile(p);
+                        }else if (url == "updateuser") { //User profile edit
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    userProfile? user = GetUserProfile(uid);
+                                    if (user != null) {
+                                        if (a.ContainsKey("name") && a["name"].Trim() != "") {
+                                            user.name = a["name"].Trim().Replace("\n","");
+                                        }
+                                        if (!a.ContainsKey("picture")) {
+                                            a["picture"] = "";
+                                        }
+                                        if (!a.ContainsKey("description")) {
+                                            a["description"] = "";
+                                        }
+                                        user.picture = a["picture"];
+                                        user.description = a["description"].Trim();
+                                        SetUserProfile(uid, user);
+                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "getchatslist") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    List<chatItem>? chats = GetUserChats(uid);
+                                    if (chats != null) {
+                                        foreach (chatItem item in chats) { //Format chats for clients
+                                            /*if (item.type == "user") { //Info
+                                                *                           var p = GetUserProfile(item.user ?? "");
+                                                *                           item.info = profileShort.fromProfile(p);
                                         }else if (item.type == "group") {
                                             var p = Group.get(item.group ?? "");
-                                            item.info = profileShort.fromGroup(p);
+            item.info = profileShort.fromGroup(p);
                                         }*/
 
-                                        Chat? chat = Chat.getChat(item.chatid ?? item.group ?? "");
-                                        if (chat != null) {
-                                            if (chat.canDo(uid,Chat.chatAction.Read)) { //Check for read permission before giving the last message
-                                                item.lastmessage = chat.getLastMessage();
+                                            Chat? chat = Chat.getChat(item.chatid ?? item.group ?? "");
+                                            if (chat != null) {
+                                                if (chat.canDo(uid,Chat.chatAction.Read)) { //Check for read permission before giving the last message
+                                                    item.lastmessage = chat.getLastMessage();
+                                                }
                                             }
                                         }
-                                    }
-                                    res = JsonConvert.SerializeObject(chats);
-                                    foreach (chatItem item in chats) {
-                                        //item.info = null;
-                                        item.lastmessage = null;
-                                    }
-                                }else {
-                                    statuscode = 500;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getnotifications") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                //Console.WriteLine(JsonConvert.SerializeObject(notifications));
-                                var usernotifies = notifications.Get(uid);
-                                res = JsonConvert.SerializeObject(usernotifies);
-                                List<string> keys = new();
-                                foreach (string key in usernotifies.Keys) {
-                                    keys.Add(key);
-                                }
-                                Task.Delay(10000).ContinueWith((task) => { //remove notifications after delay so all clients can see it before it's too late. SSSOOOOBBB
-                                    foreach (string key in keys) {
-                                        usernotifies.Remove(key);
-                                    }
-                                });
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "adduserchat") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("email")) {
-                            string? uidu = GetUIDFromToken(a["token"]);
-                            string? uidb = GetUIDFromToken(a["email"], false);
-                            if (uidu != null && uidb != null) {
-                                List<chatItem>? chatsu = GetUserChats(uidu);
-                                List<chatItem>? chatsb = GetUserChats(uidb);
-                                if (chatsu != null && chatsb != null) {
-                                    string chatid = uidu + "-" + uidb;
-                                    chatItem u = new() {
-                                        user = uidb,
-                                        type = "user",
-                                        chatid = chatid
-                                    };
-                                    chatItem b = new() {
-                                        user = uidu,
-                                        type = "user",
-                                        chatid = chatid
-                                    };
-                                    addToChats(chatsu,u);
-                                    addToChats(chatsb,b);
-                                    saveUserChats(uidu,chatsu);
-                                    saveUserChats(uidb,chatsb);
-                                    res = JsonConvert.SerializeObject(new serverResponse("done"));
-                                }else {
-                                    statuscode = 500;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getchatpage") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Chat? chat = Chat.getChat(a["chatid"]);
-                                if (chat != null) {
-                                    if (chat.canDo(uid,Chat.chatAction.Read)) {
-                                        chat.addupdater(uid);
-                                        res = JsonConvert.SerializeObject(chat.getPage(a.ContainsKey("page") ? int.Parse(a["page"]) : 0).format());
+                                        res = JsonConvert.SerializeObject(chats);
+                                        foreach (chatItem item in chats) {
+                                            //item.info = null;
+                                            item.lastmessage = null;
+                                        }
                                     }else {
-                                        statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED","You don't have permission to do this action."));
+                                        statuscode = 500;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT","Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getpinnedmessages") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Chat? chat = Chat.getChat(a["chatid"]);
-                                if (chat != null) {
-                                    if (chat.canDo(uid,Chat.chatAction.Read)) {
-                                        res = JsonConvert.SerializeObject(chat.getPinned().format());
+                        }else if (url == "getnotifications") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    //Console.WriteLine(JsonConvert.SerializeObject(notifications));
+                                    var usernotifies = notifications.Get(uid);
+                                    res = JsonConvert.SerializeObject(usernotifies);
+                                    List<string> keys = new();
+                                    foreach (string key in usernotifies.Keys) {
+                                        keys.Add(key);
+                                    }
+                                    Task.Delay(10000).ContinueWith((task) => { //remove notifications after delay so all clients can see it before it's too late. SSSOOOOBBB
+                                        foreach (string key in keys) {
+                                            usernotifies.Remove(key);
+                                        }
+                                    });
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "adduserchat") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("email")) {
+                                string? uidu = GetUIDFromToken(a["token"]);
+                                string? uidb = GetUIDFromToken(a["email"], false);
+                                if (uidu != null && uidb != null) {
+                                    List<chatItem>? chatsu = GetUserChats(uidu);
+                                    List<chatItem>? chatsb = GetUserChats(uidb);
+                                    if (chatsu != null && chatsb != null) {
+                                        string chatid = uidu + "-" + uidb;
+                                        chatItem u = new() {
+                                            user = uidb,
+                                            type = "user",
+                                            chatid = chatid
+                                        };
+                                        chatItem b = new() {
+                                            user = uidu,
+                                            type = "user",
+                                            chatid = chatid
+                                        };
+                                        addToChats(chatsu,u);
+                                        addToChats(chatsb,b);
+                                        saveUserChats(uidu,chatsu);
+                                        saveUserChats(uidb,chatsb);
+                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
                                     }else {
-                                        statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED","You don't have permission to do this action."));
+                                        statuscode = 500;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT","Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "sendmessage") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
-                        if (a != null) {
-                            List<string>? files = a.ContainsKey("files") && (a["files"] is JArray) ? ((JArray)a["files"]).ToObject<List<string>>() : null;
-                            if (a.ContainsKey("token") && a.ContainsKey("chatid") && ((a.ContainsKey("content") && (a["content"].ToString() ?? "") != "") || (files != null && files.Count > 0))) {
+                        }else if (url == "getchatpage") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Chat? chat = Chat.getChat(a["chatid"]);
+                                    if (chat != null) {
+                                        if (chat.canDo(uid,Chat.chatAction.Read)) {
+                                            res = JsonConvert.SerializeObject(chat.getPage(a.ContainsKey("page") ? int.Parse(a["page"]) : 0).format());
+                                        }else {
+                                            statuscode = 401;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED","You don't have permission to do this action."));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT","Couldn't open chat. Is it valid????"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "getpinnedmessages") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Chat? chat = Chat.getChat(a["chatid"]);
+                                    if (chat != null) {
+                                        if (chat.canDo(uid,Chat.chatAction.Read)) {
+                                            res = JsonConvert.SerializeObject(chat.getPinned().format());
+                                        }else {
+                                            statuscode = 401;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED","You don't have permission to do this action."));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT","Couldn't open chat. Is it valid????"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "sendmessage") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
+                            if (a != null) {
+                                List<string>? files = a.ContainsKey("files") && (a["files"] is JArray) ? ((JArray)a["files"]).ToObject<List<string>>() : null;
+                                if (a.ContainsKey("token") && a.ContainsKey("chatid") && ((a.ContainsKey("content") && (a["content"].ToString() ?? "") != "") || (files != null && files.Count > 0))) {
+                                    string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
+                                    if (uid != null) {
+                                        Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
+                                        if (chat != null) {
+                                            if (chat.canDo(uid,Chat.chatAction.Send)) {
+                                                chatMessage msg = new() {
+                                                    sender = uid,
+                                                    content = (a["content"].ToString() ?? "").Trim(),
+                                                                                        replymsgid = a.ContainsKey("replymsg") ? a["replymsg"].ToString() : null,
+                                                                                        files = files,
+                                                                                        time = datetostring(DateTime.Now)
+                                                };
+                                                chat.sendMessage(msg);
+                                                var userstatus = getuserstatus(uid);
+                                                if (userstatus != null) {
+                                                    userstatus.setTyping("");
+                                                }
+                                                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                            }else {
+                                                statuscode = 401;
+                                                res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                            }
+                                        }else {
+                                            statuscode = 404;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER","User doesn't exist."));
+                                    }
+                                }else {
+                                    statuscode = 411;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "deletemessage") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs")) {
                                 string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
                                 if (uid != null) {
                                     Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
                                     if (chat != null) {
-                                        if (chat.canDo(uid,Chat.chatAction.Send)) {
-                                            chatMessage msg = new() {
-                                                sender = uid,
-                                                content = (a["content"].ToString() ?? "").Trim(),
-                                                replymsgid = a.ContainsKey("replymsg") ? a["replymsg"].ToString() : null,
-                                                files = files,
-                                                time = datetostring(DateTime.Now)
-                                            };
-                                            chat.sendMessage(msg);
-                                            var userstatus = getuserstatus(uid);
-                                            if (userstatus != null) {
-                                                userstatus.setTyping("");
+                                        if (a["msgs"] is JArray) {
+                                            var msgs = (JArray)a["msgs"];
+                                            foreach (object msg in msgs) {
+                                                string? msgid = msg.ToString() ?? "";
+                                                if (chat.canDo(uid,Chat.chatAction.Delete,msgid)) {
+                                                    //if (chat.ContainsKey(msgid)) {
+                                                    chat.deleteMessage(msgid);
+                                                    //}
+                                                }
+                                            }
+                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                        }else {
+                                            statuscode = 411;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "pinmessage") { //More like a toggle
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs")) {
+                                string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
+                                if (uid != null) {
+                                    Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
+                                    if (chat != null) {
+                                        if (a["msgs"] is JArray) {
+                                            var msgs = (JArray)a["msgs"];
+                                            foreach (object msg in msgs) {
+                                                string? msgid = msg.ToString() ?? "";
+                                                if (chat.canDo(uid,Chat.chatAction.Pin,msgid)) {
+                                                    chat.pinMessage(msgid);
+                                                }
+                                            }
+                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                        }else {
+                                            statuscode = 411;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "sendreaction") { //More like a toggle
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgid") && a.ContainsKey("reaction") && (a["reaction"].ToString() ?? "") != "") {
+                                string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
+                                if (uid != null) {
+                                    Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
+                                    if (chat != null) {
+                                        string? msgid = a["msgid"].ToString() ?? "";
+                                        string? reaction = a["reaction"].ToString() ?? "";
+                                        if (chat.canDo(uid,Chat.chatAction.React,msgid)) {
+                                            //if (chat.ContainsKey(msgid)) {
+                                            res = JsonConvert.SerializeObject(chat.reactMessage(msgid,uid,reaction));
+                                            //}else {
+                                            //    statuscode = 404;
+                                            //    res = JsonConvert.SerializeObject(new serverResponse("error", "NOMSG", "Message not found"));
+                                            //}
+                                        }else {
+                                            statuscode = 401;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "savemessage") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs")) {
+                                string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
+                                if (uid != null) {
+                                    Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
+                                    if (chat != null) {
+                                        if (chat.canDo(uid,Chat.chatAction.Read)) {
+                                            if (a["msgs"] is JArray) {
+                                                var msgs = (JArray)a["msgs"];
+                                                foreach (object msg in msgs) {
+                                                    string? msgid = msg.ToString() ?? "";
+                                                    if (chat.ContainsKey(msgid)) {
+                                                        Chat? uchat = Chat.getChat(uid + "-" + uid);
+                                                        if (uchat != null) {
+                                                            chatMessage message = new() {
+                                                                sender = chat[msgid].sender,
+                                                                content = chat[msgid].content,
+                                                                files = chat[msgid].files,
+                                                                time = datetostring(DateTime.Now)
+                                                            };
+                                                            uchat.sendMessage(message,false);
+
+                                                        }
+                                                    }
+                                                }
+                                                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                            }else {
+                                                statuscode = 401;
+                                                res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                            }
+                                        }else {
+                                            statuscode = 401;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "forwardmessage") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs") && a.ContainsKey("tochats")) {
+                                string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
+                                if (uid != null) {
+                                    Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
+                                    if (chat != null) {
+                                        if (chat.canDo(uid,Chat.chatAction.Read)) {
+                                            if (a["msgs"] is JArray) {
+                                                var msgs = (JArray)a["msgs"];
+                                                foreach (object msg in msgs) {
+                                                    string? msgid = msg.ToString() ?? "";
+                                                    if (chat.ContainsKey(msgid)) {
+                                                        if (a["tochats"] is JArray) {
+                                                            var chats = (JArray)a["tochats"];
+                                                            foreach (object chatid in chats) {
+                                                                Chat? uchat = Chat.getChat(chatid.ToString() ?? "");
+                                                                if (uchat != null) {
+                                                                    if (uchat.canDo(uid,Chat.chatAction.Send)) {
+                                                                        chatMessage message = new() {
+                                                                            forwardedfrom = chat[msgid].sender,
+                                                                                sender = uid,
+                                                                                content = chat[msgid].content,
+                                                                                files = chat[msgid].files,
+                                                                                time = datetostring(DateTime.Now)
+                                                                        };
+                                                                        uchat.sendMessage(message);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                             res = JsonConvert.SerializeObject(new serverResponse("done"));
                                         }else {
@@ -1342,560 +1502,483 @@ internal class Program
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER","User doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "deletemessage") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs")) {
-                            string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
-                            if (uid != null) {
-                                Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
-                                if (chat != null) {
-                                    if (a["msgs"] is JArray) {
-                                        var msgs = (JArray)a["msgs"];
-                                        foreach (object msg in msgs) {
-                                            string? msgid = msg.ToString() ?? "";
-                                            if (chat.canDo(uid,Chat.chatAction.Delete,msgid)) {
-                                                //if (chat.ContainsKey(msgid)) {
-                                                chat.deleteMessage(msgid);
-                                                //}
-                                            }
-                                        }
-                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
-                                    }else {
-                                        statuscode = 411;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
-                                    }
-                                }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "pinmessage") { //More like a toggle
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs")) {
-                            string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
-                            if (uid != null) {
-                                Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
-                                if (chat != null) {
-                                    if (a["msgs"] is JArray) {
-                                        var msgs = (JArray)a["msgs"];
-                                        foreach (object msg in msgs) {
-                                            string? msgid = msg.ToString() ?? "";
-                                                if (chat.canDo(uid,Chat.chatAction.Pin,msgid)) {
-                                                    chat.pinMessage(msgid);
-                                                }
-                                        }
-                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
-                                    }else {
-                                        statuscode = 411;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
-                                    }
-                                }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "sendreaction") { //More like a toggle
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgid") && a.ContainsKey("reaction") && (a["reaction"].ToString() ?? "") != "") {
-                            string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
-                            if (uid != null) {
-                                Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
-                                if (chat != null) {
-                                    string? msgid = a["msgid"].ToString() ?? "";
-                                    string? reaction = a["reaction"].ToString() ?? "";
-                                    if (chat.canDo(uid,Chat.chatAction.React,msgid)) {
-                                        //if (chat.ContainsKey(msgid)) {
-                                        res = JsonConvert.SerializeObject(chat.reactMessage(msgid,uid,reaction));
-                                        //}else {
-                                        //    statuscode = 404;
-                                        //    res = JsonConvert.SerializeObject(new serverResponse("error", "NOMSG", "Message not found"));
-                                        //}
-                                    }else {
-                                        statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
-                                    }
-                                }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "savemessage") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs")) {
-                            string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
-                            if (uid != null) {
-                                Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
-                                if (chat != null) {
-                                    if (chat.canDo(uid,Chat.chatAction.Read)) {
-                                        if (a["msgs"] is JArray) {
-                                            var msgs = (JArray)a["msgs"];
-                                            foreach (object msg in msgs) {
-                                                string? msgid = msg.ToString() ?? "";
-                                                if (chat.ContainsKey(msgid)) {
-                                                    Chat? uchat = Chat.getChat(uid + "-" + uid);
-                                                    if (uchat != null) {
-                                                        chatMessage message = new() {
-                                                            sender = chat[msgid].sender,
-                                                            content = chat[msgid].content,
-                                                            files = chat[msgid].files,
-                                                            time = datetostring(DateTime.Now)
-                                                        };
-                                                        uchat.sendMessage(message,false);
-
-                                                    }
-                                                }
-                                            }
-                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
+                        }else if (url == "getupdates") { //Chat updates
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("id")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Chat? chat = Chat.getChat(a["id"]);
+                                    if (chat != null) {
+                                        if (chat.canDo(uid,Chat.chatAction.Read)) { //Check if user can even "read" it at all
+                                            res = JsonConvert.SerializeObject(chat.updates);
                                         }else {
                                             statuscode = 401;
                                             res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
                                         }
                                     }else {
-                                        statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "forwardmessage") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs") && a.ContainsKey("tochats")) {
-                            string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
-                            if (uid != null) {
-                                Chat? chat = Chat.getChat(a["chatid"].ToString() ?? "");
-                                if (chat != null) {
-                                    if (chat.canDo(uid,Chat.chatAction.Read)) {
-                                        if (a["msgs"] is JArray) {
-                                            var msgs = (JArray)a["msgs"];
-                                            foreach (object msg in msgs) {
-                                                string? msgid = msg.ToString() ?? "";
-                                                if (chat.ContainsKey(msgid)) {
-                                                    if (a["tochats"] is JArray) {
-                                                        var chats = (JArray)a["tochats"];
-                                                        foreach (object chatid in chats) {
-                                                            Chat? uchat = Chat.getChat(chatid.ToString() ?? "");
-                                                            if (uchat != null) {
-                                                                if (uchat.canDo(uid,Chat.chatAction.Send)) {
-                                                                    chatMessage message = new() {
-                                                                        forwardedfrom = chat[msgid].sender,
-                                                                        sender = uid,
-                                                                        content = chat[msgid].content,
-                                                                        files = chat[msgid].files,
-                                                                        time = datetostring(DateTime.Now)
-                                                                    };
-                                                                    uchat.sendMessage(message);
-                                                                }
-                                                            }
-                                                        }
-                                                    }
+                        }else if (url == "settyping") { //Set user as typing at a chat
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Chat? chat = Chat.getChat(a["chatid"]);
+                                    if (chat != null) {
+                                        if (chat.canDo(uid,Chat.chatAction.Send)) { //Ofc, if the user has the permission to send at the chat
+                                            var userstatus = getuserstatus(uid);
+                                            if (userstatus != null) {
+                                                userstatus.setTyping(chat.chatid);
+                                                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                            }else {
+                                                statuscode = 500;
+                                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                            }
+                                        }else {
+                                            statuscode = 401;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "gettyping") { //Get typing users in a chat
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Chat? chat = Chat.getChat(a["chatid"]);
+                                    if (chat != null) {
+                                        if (chat.canDo(uid,Chat.chatAction.Read)) { //Ofc, if the user has the permission to read the chat
+                                            res = JsonConvert.SerializeObject(chat.typingUsers);
+                                        }else {
+                                            statuscode = 401;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url.StartsWith("getmedia")) { //Needs improvement
+                            if (context.Request.QueryString["file"] != null) {
+                                string file = context.Request.QueryString["file"] ?? "";
+                                string type = context.Request.QueryString["type"] ?? "";
+                                if (File.Exists("data/upload/" + file)) {
+                                    fileUpload? f = JsonConvert.DeserializeObject<fileUpload>(File.ReadAllText("data/upload/" + file));
+                                    if (f != null) {
+                                        context.Response.AddHeader("Content-Length", f.size.ToString());
+                                        if (context.Request.Headers["sec-fetch-dest"] != "document") {
+                                            context.Response.AddHeader("Content-Disposition", "attachment; filename=" + HttpUtility.UrlEncode(f.actualName));
+                                        }
+                                        context.Response.StatusCode = statuscode;
+                                        string path = "data/upload/" + file + "." + (type == "thumb" ? "thumb" : "file");
+                                        if (File.Exists(path)) {
+                                            writeRes = false;
+                                            var fileStream = File.OpenRead(path);
+                                            context.Response.KeepAlive = false;
+                                            var cp = fileStream.CopyToAsync(context.Response.OutputStream);
+                                            cp.ContinueWith((Task cpt) =>
+                                            {
+                                                if (cpt.IsCompletedSuccessfully) {context.Response.Close();fileStream.Close();fileStream.Dispose();}
+                                            });
+                                        }else {
+                                            statuscode = 404;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "File doesn't exist, could be the thumbnail."));
+                                            //mediaProcesserJobs.Add(file); //Generate it for next visits. (well, could be used to spam the server. ig just ignore old images for now.)
+                                        }
+                                    }else {
+                                        statuscode = 500;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "File doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "creategroup") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    if (a.ContainsKey("name") && a["name"].Trim() != "") {
+                                        if (!a.ContainsKey("picture")) {
+                                            a["picture"] = "";
+                                        }
+                                        if (!a.ContainsKey("info")) {
+                                            a["info"] = "";
+                                        }
+                                        string id = "";
+                                        do
+                                        {
+                                            id =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                                        }
+                                        while (Directory.Exists("data/infos/" + id));
+                                        Group g = new() {
+                                            groupID = id,
+                                            name = a["name"].Trim(),
+                                            picture = a["picture"],
+                                            info = a["info"].Trim(),
+                                            owner = uid,
+                                            time = datetostring(DateTime.Now),
+                                            roles = new() { //Default roles
+                                                ["Owner"] = new groupRole() {
+                                                    AdminOrder = 0,
+                                                    AllowBanning = true,
+                                                    AllowEditingSettings = true,
+                                                    AllowEditingUsers = true,
+                                                    AllowKicking = true,
+                                                    AllowMessageDeleting = true,
+                                                    AllowSending = true,
+                                                    AllowSendingReactions = true,
+                                                    AllowPinningMessages = true
+                                                },
+                                                ["Admin"] = new groupRole() {
+                                                    AdminOrder = 1,
+                                                    AllowBanning = true,
+                                                    AllowEditingSettings = false,
+                                                    AllowEditingUsers = true,
+                                                    AllowKicking = true,
+                                                    AllowMessageDeleting = true,
+                                                    AllowSending = true,
+                                                    AllowSendingReactions = true,
+                                                    AllowPinningMessages = true
+                                                },
+                                                ["Moderator"] = new groupRole() {
+                                                    AdminOrder = 2,
+                                                    AllowBanning = true,
+                                                    AllowEditingSettings = false,
+                                                    AllowEditingUsers = false,
+                                                    AllowKicking = true,
+                                                    AllowMessageDeleting = true,
+                                                    AllowSending = true,
+                                                    AllowSendingReactions = true,
+                                                    AllowPinningMessages = true
+                                                },
+                                                ["Normal"] = new groupRole() {
+                                                    AdminOrder = 3,
+                                                    AllowBanning = false,
+                                                    AllowEditingSettings = false,
+                                                    AllowEditingUsers = false,
+                                                    AllowKicking = false,
+                                                    AllowMessageDeleting = false,
+                                                    AllowSending = true,
+                                                    AllowSendingReactions = true,
+                                                    AllowPinningMessages = false
+                                                },
+                                                ["Readonly"] = new groupRole() {
+                                                    AdminOrder = 4,
+                                                    AllowBanning = false,
+                                                    AllowEditingSettings = false,
+                                                    AllowEditingUsers = false,
+                                                    AllowKicking = false,
+                                                    AllowMessageDeleting = false,
+                                                    AllowSending = false,
+                                                    AllowSendingReactions = false,
+                                                    AllowPinningMessages = false
                                                 }
                                             }
+                                        };
+                                        g.addUser(uid,"Owner");
+                                        g.save();
+                                        Dictionary<string,string> response = new() {
+                                            ["groupid"] = id
+                                        };
+                                        res = JsonConvert.SerializeObject(response);
+                                    }else {
+                                        statuscode = 411;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOINFO","No group info"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "getgroup") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("groupid")) {
+                                string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                                Group? gp = Group.get(a["groupid"]);
+                                if (gp != null) {
+                                    if (gp.canDo(uid, Group.groupAction.Read)) {
+                                        res = JsonConvert.SerializeObject(new groupInfo() {
+                                            name = gp.name,
+                                            info = gp.info,
+                                            picture = gp.picture,
+                                            publicgroup = gp.publicgroup
+                                        });
+                                    }else {
+                                        statuscode = 403;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "getinfo") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("id")) {
+                                string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                                if (a["id"] == "0") {
+                                    res = pamukProfile;
+                                }else {
+                                    userProfile? up = GetUserProfile(a["id"]);
+                                    if (up != null) {
+                                        res = JsonConvert.SerializeObject(up);
+                                    }else {
+                                        Group? gp = Group.get(a["id"]);
+                                        if (gp != null) {
+                                            if (gp.canDo(uid, Group.groupAction.Read)) {
+                                                res = JsonConvert.SerializeObject(new groupInfo() {
+                                                    name = gp.name,
+                                                    info = gp.info,
+                                                    picture = gp.picture,
+                                                    publicgroup = gp.publicgroup
+                                                });
+                                            }else {
+                                                statuscode = 403;
+                                                res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                            }
+                                        }else {
+                                            statuscode = 404;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                                         }
-                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                    }
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "getgroupusers" || url == "getgroupmembers") { //getgroupmembers is new name
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("groupid")) {
+                                string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                                Group? gp = Group.get(a["groupid"]);
+                                if (gp != null) {
+                                    if (gp.canDo(uid, Group.groupAction.Read)) {
+                                        res = JsonConvert.SerializeObject(gp.members);
                                     }else {
-                                        statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                        statuscode = 403;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getupdates") { //Chat updates
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("id")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Chat? chat = Chat.getChat(a["id"]);
-                                if (chat != null) {
-                                    if (chat.canDo(uid,Chat.chatAction.Read)) { //Check if user can even "read" it at all
-                                        res = JsonConvert.SerializeObject(chat.getupdater(uid));
+                        }else if (url == "getbannedgroupmembers") { //getgroupmembers is new name
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("groupid")) {
+                                string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                                Group? gp = Group.get(a["groupid"]);
+                                if (gp != null) {
+                                    if (gp.canDo(uid, Group.groupAction.Read)) {
+                                        res = JsonConvert.SerializeObject(gp.bannedMembers);
                                     }else {
-                                        statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                        statuscode = 403;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "settyping") { //Set user as typing at a chat
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Chat? chat = Chat.getChat(a["chatid"]);
-                                if (chat != null) {
-                                    if (chat.canDo(uid,Chat.chatAction.Send)) { //Ofc, if the user has the permission to send at the chat
-                                        var userstatus = getuserstatus(uid);
-                                        if (userstatus != null) {
-                                            userstatus.setTyping(chat.chatid);
+                        }else if (url == "getgroupuserscount" || url == "getgroupmemberscount") { //getgroupmemberscount is new name
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("groupid")) {
+                                Group? gp = Group.get(a["groupid"]);
+                                string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                                if (gp != null) {
+                                    if (gp.canDo(uid, Group.groupAction.Read)) {
+                                        res = gp.members.Count.ToString();
+                                    }else {
+                                        statuscode = 403;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "getgrouproles") { //get all group roles
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("groupid")) {
+                                string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                                Group? gp = Group.get(a["groupid"]);
+                                if (gp != null) {
+                                    if (gp.canDo(uid, Group.groupAction.Read)) {
+                                        res = JsonConvert.SerializeObject(gp.roles);
+                                    }else {
+                                        statuscode = 403;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "getgrouprole") { //Group role for current user
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Group? gp = Group.get(a["groupid"]);
+                                    if (gp != null) {
+                                        var role = gp.getUserRole(uid);
+                                        if (role != null) {
+                                            res = JsonConvert.SerializeObject(role);
+                                        }else {
+                                            if (gp.publicgroup) {
+                                                res = JsonConvert.SerializeObject(new groupRole() {
+                                                    AdminOrder = -1,
+                                                    AllowBanning = false,
+                                                    AllowEditingSettings = false,
+                                                    AllowEditingUsers = false,
+                                                    AllowKicking = false,
+                                                    AllowMessageDeleting = false,
+                                                    AllowSending = false,
+                                                    AllowSendingReactions = false,
+                                                    AllowPinningMessages = false
+                                                });
+                                            }else {
+                                                statuscode = 404;
+                                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                            }
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "joingroup") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Group? gp = Group.get(a["groupid"]);
+                                    if (gp != null) {
+                                        if (gp.addUser(uid)) {
+                                            Dictionary<string,string> response = new() {
+                                                ["groupid"] = gp.groupID
+                                            };
+                                            res = JsonConvert.SerializeObject(response);
+                                            gp.save();
+                                        }else {
+                                            statuscode = 500;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "leavegroup") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Group? gp = Group.get(a["groupid"]);
+                                    if (gp != null) {
+                                        if (gp.removeUser(uid)) {
+                                            gp.save();
                                             res = JsonConvert.SerializeObject(new serverResponse("done"));
                                         }else {
                                             statuscode = 500;
                                             res = JsonConvert.SerializeObject(new serverResponse("error"));
                                         }
                                     }else {
-                                        statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
-                                    }
-                                }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "gettyping") { //Get typing users in a chat
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Chat? chat = Chat.getChat(a["chatid"]);
-                                if (chat != null) {
-                                    if (chat.canDo(uid,Chat.chatAction.Read)) { //Ofc, if the user has the permission to read the chat
-                                        var userstatus = getuserstatus(uid);
-                                        res = JsonConvert.SerializeObject(chat.getTyping());
-                                    }else {
-                                        statuscode = 401;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
-                                    }
-                                }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "upload" && context.Request.HttpMethod.ToLower() == "post") { //post only because browsers want OPTIONS request which would fail.
-                        if (context.Request.Headers["token"] != null) {
-                            string? uid = GetUIDFromToken(context.Request.Headers["token"] ?? "");
-                            if (uid != null) {
-                                if (context.Request.Headers["content-length"] != null) {
-                                    int contentLength = int.Parse(context.Request.Headers["content-length"] ?? "0");
-                                    if (contentLength != 0) {
-                                        string id = "";
-                                        do 
-                                        {
-                                            id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
-                                        }
-                                        while (File.Exists("data/upload/" + id));
-                                        string? filename = context.Request.Headers["filename"];
-                                        //if (filename == null) {
-                                            filename = id;
-                                        //}else {
-                                        //    filename = filename + id;
-                                        //}
-                                        string fpname = filename.Replace(".","").Replace("/","").Replace("\\","");
-                                        var stream = context.Request.InputStream;
-                                        //stream.Seek(0, SeekOrigin.Begin);
-                                        var fileStream = File.Create("data/upload/" + fpname + ".file");
-                                        var cp = stream.CopyToAsync(fileStream);
-                                        cp.ContinueWith((Task cpt) =>
-                                        {
-                                            if (c.IsCompletedSuccessfully) {
-                                                fileStream.Close();
-                                                fileStream.Dispose();
-                                                fileUpload u = new() {
-                                                    size = contentLength,
-                                                    actualName = context.Request.Headers["filename"] ?? id,
-                                                    sender = uid,
-                                                    contentType = context.Request.Headers["content-type"] ?? ""
-                                                };
-
-                                                string? uf = JsonConvert.SerializeObject(u);
-                                                if (uf == null) throw new Exception("???");
-                                                File.WriteAllText("data/upload/" + fpname, uf);
-                                                
-                                                res = JsonConvert.SerializeObject(new fileUploadResponse("success","%SERVER%getmedia?file=" + fpname));
-                                                context.Response.StatusCode = statuscode;
-                                                context.Response.ContentType = "text/json";
-                                                byte[] bts = Encoding.UTF8.GetBytes(res);
-                                                context.Response.OutputStream.Write(bts, 0, bts.Length);
-                                                context.Response.KeepAlive = false; 
-                                                context.Response.Close();
-                                                string extension = u.contentType.Split("/")[1];
-                                                if (extension == "png" || extension == "jpg" || extension == "jpeg" || extension == "gif" || extension == "bmp")
-                                                    mediaProcesserJobs.Add(id);
-                                            }
-                                        });
-                                        writeRes = false;
-                                    }else {
                                         statuscode = 404;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "No file."));
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "No file."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url.StartsWith("getmedia")) { //Needs improvement
-                        if (context.Request.QueryString["file"] != null) {
-                            string file = context.Request.QueryString["file"] ?? "";
-                            string type = context.Request.QueryString["type"] ?? "";
-                            if (File.Exists("data/upload/" + file)) {
-                                fileUpload? f = JsonConvert.DeserializeObject<fileUpload>(File.ReadAllText("data/upload/" + file));
-                                if (f != null) {
-                                    context.Response.AddHeader("Content-Length", f.size.ToString());
-                                    if (context.Request.Headers["sec-fetch-dest"] != "document") {
-                                        context.Response.AddHeader("Content-Disposition", "attachment; filename=" + HttpUtility.UrlEncode(f.actualName));
-                                    }
-                                    context.Response.StatusCode = statuscode;
-                                    string path = "data/upload/" + file + "." + (type == "thumb" ? "thumb" : "file");
-                                    if (File.Exists(path)) {
-                                        writeRes = false;
-                                        var fileStream = File.OpenRead(path);
-                                        context.Response.KeepAlive = false;
-                                        var cp = fileStream.CopyToAsync(context.Response.OutputStream);
-                                        cp.ContinueWith((Task cpt) =>
-                                        {
-                                                if (c.IsCompletedSuccessfully) {context.Response.Close();fileStream.Close();fileStream.Dispose();}
-                                        });
-                                    }else {
-                                        statuscode = 404;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "File doesn't exist, could be the thumbnail."));
-                                        //mediaProcesserJobs.Add(file); //Generate it for next visits. (well, could be used to spam the server. ig just ignore old images for now.)
-                                    }
-                                }else {
-                                    statuscode = 500;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "File doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "creategroup") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                if (a.ContainsKey("name") && a["name"].Trim() != "") {
-                                    if (!a.ContainsKey("picture")) {
-                                        a["picture"] = "";
-                                    }
-                                    if (!a.ContainsKey("info")) {
-                                        a["info"] = "";
-                                    }
-                                    string id = "";
-                                    do 
-                                    {
-                                        id =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
-                                    }
-                                    while (Directory.Exists("data/infos/" + id));
-                                    Group g = new() {
-                                        groupID = id,
-                                        name = a["name"].Trim(),
-                                        picture = a["picture"],
-                                        info = a["info"].Trim(),
-                                        owner = uid,
-                                        time = datetostring(DateTime.Now),
-                                        roles = new() { //Default roles
-                                            ["Owner"] = new groupRole() {
-                                                AdminOrder = 0,
-                                                AllowBanning = true,
-                                                AllowEditingSettings = true,
-                                                AllowEditingUsers = true,
-                                                AllowKicking = true,
-                                                AllowMessageDeleting = true,
-                                                AllowSending = true,
-                                                AllowSendingReactions = true,
-                                                AllowPinningMessages = true
-                                            },
-                                            ["Admin"] = new groupRole() {
-                                                AdminOrder = 1,
-                                                AllowBanning = true,
-                                                AllowEditingSettings = false,
-                                                AllowEditingUsers = true,
-                                                AllowKicking = true,
-                                                AllowMessageDeleting = true,
-                                                AllowSending = true,
-                                                AllowSendingReactions = true,
-                                                AllowPinningMessages = true
-                                            },
-                                            ["Moderator"] = new groupRole() {
-                                                AdminOrder = 2,
-                                                AllowBanning = true,
-                                                AllowEditingSettings = false,
-                                                AllowEditingUsers = false,
-                                                AllowKicking = true,
-                                                AllowMessageDeleting = true,
-                                                AllowSending = true,
-                                                AllowSendingReactions = true,
-                                                AllowPinningMessages = true
-                                            },
-                                            ["Normal"] = new groupRole() {
-                                                AdminOrder = 3,
-                                                AllowBanning = false,
-                                                AllowEditingSettings = false,
-                                                AllowEditingUsers = false,
-                                                AllowKicking = false,
-                                                AllowMessageDeleting = false,
-                                                AllowSending = true,
-                                                AllowSendingReactions = true,
-                                                AllowPinningMessages = false
-                                            },
-                                            ["Readonly"] = new groupRole() {
-                                                AdminOrder = 4,
-                                                AllowBanning = false,
-                                                AllowEditingSettings = false,
-                                                AllowEditingUsers = false,
-                                                AllowKicking = false,
-                                                AllowMessageDeleting = false,
-                                                AllowSending = false,
-                                                AllowSendingReactions = false,
-                                                AllowPinningMessages = false
-                                            },
-                                        }
-                                    };
-                                    g.addUser(uid,"Owner");
-                                    g.save();
-                                    Dictionary<string,string> response = new() {
-                                        ["groupid"] = id
-                                    };
-                                    res = JsonConvert.SerializeObject(response);
-                                }else {
-                                    statuscode = 411;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOINFO","No group info"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getgroup") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("groupid")) {
-                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
-                            Group? gp = Group.get(a["groupid"]);
-                            if (gp != null) {
-                                if (gp.canDo(uid, Group.groupAction.Read)) {
-                                    res = JsonConvert.SerializeObject(new groupInfo() {
-                                        name = gp.name,
-                                        info = gp.info,
-                                        picture = gp.picture,
-                                        publicgroup = gp.publicgroup
-                                    });
-                                }else {
-                                    statuscode = 403;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getinfo") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("id")) {
-                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
-                            if (a["id"] == "0") {
-                                res = pamukProfile;
-                            }else {
-                                userProfile? up = GetUserProfile(a["id"]);
-                                if (up != null) {
-                                    res = JsonConvert.SerializeObject(up);
-                                }else {
-                                    Group? gp = Group.get(a["id"]);
+                        }else if (url == "kickuser") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Group? gp = Group.get(a["groupid"]);
                                     if (gp != null) {
-                                        if (gp.canDo(uid, Group.groupAction.Read)) {
-                                            res = JsonConvert.SerializeObject(new groupInfo() {
-                                                name = gp.name,
-                                                info = gp.info,
-                                                picture = gp.picture,
-                                                publicgroup = gp.publicgroup
-                                            });
+                                        if (gp.canDo(uid,Group.groupAction.Kick,a["uid"] ?? "")) {
+                                            if (gp.removeUser(a["uid"] ?? "")) {
+                                                gp.save();
+                                                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                            }else {
+                                                statuscode = 500;
+                                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                            }
                                         }else {
                                             statuscode = 403;
                                             res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
@@ -1904,408 +1987,271 @@ internal class Program
                                         statuscode = 404;
                                         res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                                     }
-                                }
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getgroupusers" || url == "getgroupmembers") { //getgroupmembers is new name
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("groupid")) {
-                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
-                            Group? gp = Group.get(a["groupid"]);
-                            if (gp != null) {
-                                if (gp.canDo(uid, Group.groupAction.Read)) {
-                                    res = JsonConvert.SerializeObject(gp.members);
-                                }else {
-                                    statuscode = 403;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getbannedgroupmembers") { //getgroupmembers is new name
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("groupid")) {
-                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
-                            Group? gp = Group.get(a["groupid"]);
-                            if (gp != null) {
-                                if (gp.canDo(uid, Group.groupAction.Read)) {
-                                    res = JsonConvert.SerializeObject(gp.bannedMembers);
-                                }else {
-                                    statuscode = 403;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getgroupuserscount" || url == "getgroupmemberscount") { //getgroupmemberscount is new name
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("groupid")) {
-                            Group? gp = Group.get(a["groupid"]);
-                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
-                            if (gp != null) {
-                                if (gp.canDo(uid, Group.groupAction.Read)) {
-                                    res = gp.members.Count.ToString();
-                                }else {
-                                    statuscode = 403;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getgrouproles") { //get all group roles
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("groupid")) {
-                            string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
-                            Group? gp = Group.get(a["groupid"]);
-                            if (gp != null) {
-                                if (gp.canDo(uid, Group.groupAction.Read)) {
-                                    res = JsonConvert.SerializeObject(gp.roles);
-                                }else {
-                                    statuscode = 403;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "getgrouprole") { //Group role for current user
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Group? gp = Group.get(a["groupid"]);
-                                if (gp != null) {
-                                    var role = gp.getUserRole(uid);
-                                    if (role != null) {
-                                        res = JsonConvert.SerializeObject(role);
-                                    }else {
-                                        if (gp.publicgroup) {
-                                            res = JsonConvert.SerializeObject(new groupRole() {
-                                                AdminOrder = -1,
-                                                AllowBanning = false,
-                                                AllowEditingSettings = false,
-                                                AllowEditingUsers = false,
-                                                AllowKicking = false,
-                                                AllowMessageDeleting = false,
-                                                AllowSending = false,
-                                                AllowSendingReactions = false,
-                                                AllowPinningMessages = false
-                                            });
-                                        }else {
-                                            statuscode = 404;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                                        }
-                                    }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "joingroup") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Group? gp = Group.get(a["groupid"]);
-                                if (gp != null) {
-                                    if (gp.addUser(uid)) {
-                                        Dictionary<string,string> response = new() {
-                                            ["groupid"] = gp.groupID
-                                        };
-                                        res = JsonConvert.SerializeObject(response);
-                                        gp.save();
-                                    }else {
-                                        statuscode = 500;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
-                                    }
-                                }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "leavegroup") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Group? gp = Group.get(a["groupid"]);
-                                if (gp != null) {
-                                    if (gp.removeUser(uid)) {
-                                        gp.save();
-                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
-                                    }else {
-                                        statuscode = 500;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
-                                    }
-                                }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "kickuser") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Group? gp = Group.get(a["groupid"]);
-                                if (gp != null) {
-                                    if (gp.canDo(uid,Group.groupAction.Kick,a["uid"] ?? "")) {
-                                        if (gp.removeUser(a["uid"] ?? "")) {
-                                            gp.save();
-                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
-                                        }else {
-                                            statuscode = 500;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                                        }
-                                    }else {
-                                        statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
-                                    }
-                                }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "banuser") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Group? gp = Group.get(a["groupid"]);
-                                if (gp != null) {
-                                    if (gp.canDo(uid,Group.groupAction.Ban,a["uid"] ?? "")) {
-                                        if (gp.banUser(a["uid"] ?? "")) {
-                                            gp.save();
-                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
-                                        }else {
-                                            statuscode = 500;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                                        }
-                                    }else {
-                                        statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
-                                    }
-                                }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "unbanuser") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Group? gp = Group.get(a["groupid"]);
-                                if (gp != null) {
-                                    if (gp.canDo(uid,Group.groupAction.Ban,a["uid"] ?? "")) {
-                                        gp.unbanUser(a["uid"] ?? "");
-                                        gp.save();
-                                    }else {
-                                        statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
-                                    }
-                                }else {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
-                                }
-                            }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "editgroup") {
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid")) {
-                            string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
-                            if (uid != null) {
-                                Group? gp = Group.get(a["groupid"].ToString() ?? "");
-                                if (gp != null) {
-                                    if (gp.canDo(uid,Group.groupAction.EditGroup)) {
-                                        if (a.ContainsKey("name") && (a["name"].ToString() ?? "").Trim() != "") {
-                                            gp.name = a["name"].ToString() ?? "";
-                                        }
-                                        if (a.ContainsKey("picture")) {
-                                            gp.picture = a["picture"].ToString() ?? "";
-                                        }
-                                        if (a.ContainsKey("info") && (a["info"].ToString() ?? "").Trim() != "") {
-                                            gp.info = a["info"].ToString() ?? "";
-                                        }
-                                        if (a.ContainsKey("publicgroup") && a["publicgroup"] is bool) {
-                                            gp.publicgroup = (bool)a["publicgroup"];
-                                        }
-                                        if (a.ContainsKey("roles")) {
-                                            bool setroles = true;
-                                            var roles = ((JObject)a["roles"]).ToObject<Dictionary<string, groupRole>>() ?? gp.roles;
-                                            foreach (var member in gp.members.Values) {
-                                                if (!roles.ContainsKey(member.role)) {
-                                                    setroles = false;
-                                                }
+                        }else if (url == "banuser") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Group? gp = Group.get(a["groupid"]);
+                                    if (gp != null) {
+                                        if (gp.canDo(uid,Group.groupAction.Ban,a["uid"] ?? "")) {
+                                            if (gp.banUser(a["uid"] ?? "")) {
+                                                gp.save();
+                                                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                            }else {
+                                                statuscode = 500;
+                                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                                             }
-                                            if (setroles) gp.roles = roles;
+                                        }else {
+                                            statuscode = 403;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
                                         }
-                                        // backwards compat
-                                        Dictionary<string,string> response = new() {
-                                            ["groupid"] = gp.groupID
-                                        };
-                                        res = JsonConvert.SerializeObject(response);
-                                        gp.save();
                                     }else {
-                                        statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
-                        }
-                    }else if (url == "edituser") { //Group role edit
-                        var body = new StreamReader(context.Request.InputStream).ReadToEnd();
-                        var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                        if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid") && a.ContainsKey("role")) {
-                            string? uid = GetUIDFromToken(a["token"]);
-                            if (uid != null) {
-                                Group? gp = Group.get(a["groupid"]);
-                                if (gp != null) {
-                                    if (gp.canDo(uid,Group.groupAction.EditUser,a["userid"])) {
-                                        if (gp.members.ContainsKey(a["userid"])) {
-                                            if (gp.roles.ContainsKey(a["role"])) {
-                                                var crole = gp.roles[a["role"]];
-                                                var curole = gp.getUserRole(uid);
-                                                if (curole != null) {
-                                                    if (crole.AdminOrder >= curole.AdminOrder) { //Dont allow to promote higher from current role.
-                                                        gp.members[a["userid"]].role = a["role"];
-                                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
-                                                        gp.save();
+                        }else if (url == "unbanuser") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Group? gp = Group.get(a["groupid"]);
+                                    if (gp != null) {
+                                        if (gp.canDo(uid,Group.groupAction.Ban,a["uid"] ?? "")) {
+                                            gp.unbanUser(a["uid"] ?? "");
+                                            gp.save();
+                                        }else {
+                                            statuscode = 403;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "editgroup") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid")) {
+                                string? uid = GetUIDFromToken(a["token"].ToString() ?? "");
+                                if (uid != null) {
+                                    Group? gp = Group.get(a["groupid"].ToString() ?? "");
+                                    if (gp != null) {
+                                        if (gp.canDo(uid,Group.groupAction.EditGroup)) {
+                                            if (a.ContainsKey("name") && (a["name"].ToString() ?? "").Trim() != "") {
+                                                gp.name = a["name"].ToString() ?? "";
+                                            }
+                                            if (a.ContainsKey("picture")) {
+                                                gp.picture = a["picture"].ToString() ?? "";
+                                            }
+                                            if (a.ContainsKey("info") && (a["info"].ToString() ?? "").Trim() != "") {
+                                                gp.info = a["info"].ToString() ?? "";
+                                            }
+                                            if (a.ContainsKey("publicgroup") && a["publicgroup"] is bool) {
+                                                gp.publicgroup = (bool)a["publicgroup"];
+                                            }
+                                            if (a.ContainsKey("roles")) {
+                                                bool setroles = true;
+                                                var roles = ((JObject)a["roles"]).ToObject<Dictionary<string, groupRole>>() ?? gp.roles;
+                                                foreach (var member in gp.members.Values) {
+                                                    if (!roles.ContainsKey(member.role)) {
+                                                        setroles = false;
+                                                    }
+                                                }
+                                                if (setroles) gp.roles = roles;
+                                            }
+                                            // backwards compat
+                                            Dictionary<string,string> response = new() {
+                                                ["groupid"] = gp.groupID
+                                            };
+                                            res = JsonConvert.SerializeObject(response);
+                                            gp.save();
+                                        }else {
+                                            statuscode = 403;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "edituser") { //Group role edit
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid") && a.ContainsKey("role")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Group? gp = Group.get(a["groupid"]);
+                                    if (gp != null) {
+                                        if (gp.canDo(uid,Group.groupAction.EditUser,a["userid"])) {
+                                            if (gp.members.ContainsKey(a["userid"])) {
+                                                if (gp.roles.ContainsKey(a["role"])) {
+                                                    var crole = gp.roles[a["role"]];
+                                                    var curole = gp.getUserRole(uid);
+                                                    if (curole != null) {
+                                                        if (crole.AdminOrder >= curole.AdminOrder) { //Dont allow to promote higher from current role.
+                                                            gp.members[a["userid"]].role = a["role"];
+                                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                                            gp.save();
+                                                        }else {
+                                                            statuscode = 403;
+                                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed to set more than current role"));
+                                                        }
                                                     }else {
-                                                        statuscode = 403;
-                                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed to set more than current role"));
+                                                        statuscode = 500;
+                                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
                                                     }
                                                 }else {
-                                                    statuscode = 500;
-                                                    res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                                    statuscode = 404;
+                                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOROLE", "Role doesn't exist."));
                                                 }
                                             }else {
                                                 statuscode = 404;
-                                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOROLE", "Role doesn't exist."));
+                                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                             }
                                         }else {
-                                            statuscode = 404;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                            statuscode = 403;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
                                         }
                                     }else {
-                                        statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
                                     }
                                 }else {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                             }else {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        }else { //Ping!!!!
+                            res = "Pong!";
                         }
-                    }else { //Ping!!!!
-                        res = "Pong!";
+                    }catch (Exception e) {
+                        statuscode = 500;
+                        res = e.ToString();
+                        Console.WriteLine(e.ToString());
                     }
-                }catch (Exception e) {
-                    statuscode = 500;
-                    res = e.ToString();
-                    Console.WriteLine(e.ToString());
+                    if (writeRes) { //Only use this if api wants to (unlike upload and getmedia for example)
+                        context.Response.StatusCode = statuscode;
+                        context.Response.ContentType = "text/json";
+                        byte[] bts = Encoding.UTF8.GetBytes(res);
+                        context.Response.OutputStream.Write(bts, 0, bts.Length);
+                        context.Response.KeepAlive = false;
+                        context.Response.Close();
+                    }
                 }
-                if (writeRes) { //Only use this if api wants to (unlike upload and getmedia for example)
-                    context.Response.StatusCode = statuscode;
-                    context.Response.ContentType = "text/json";
-                    byte[] bts = Encoding.UTF8.GetBytes(res);
-                    context.Response.OutputStream.Write(bts, 0, bts.Length);
-                    context.Response.KeepAlive = false; 
-                    context.Response.Close(); 
+            });
+        }else {
+            if (context.Request.Headers["token"] != null) {
+                string? uid = GetUIDFromToken(context.Request.Headers["token"] ?? "");
+                if (uid != null) {
+                    if (context.Request.Headers["content-length"] != null) {
+                        int contentLength = int.Parse(context.Request.Headers["content-length"] ?? "0");
+                        if (contentLength != 0) {
+                            string id = "";
+                            do
+                            {
+                                id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
+                            }
+                            while (File.Exists("data/upload/" + id));
+                            string? filename = context.Request.Headers["filename"];
+                            //if (filename == null) {
+                            filename = id;
+                            //}else {
+                            //    filename = filename + id;
+                            //}
+                            string fpname = filename.Replace(".","").Replace("/","").Replace("\\","");
+                            var stream = context.Request.InputStream;
+                            //stream.Seek(0, SeekOrigin.Begin);
+                            var fileStream = File.Create("data/upload/" + fpname + ".file");
+                            var cp = stream.CopyToAsync(fileStream);
+                            cp.ContinueWith((Task cpt) =>
+                            {
+                                if (cpt.IsCompletedSuccessfully) {
+                                    fileStream.Close();
+                                    fileStream.Dispose();
+                                    fileUpload u = new() {
+                                        size = contentLength,
+                                        actualName = context.Request.Headers["filename"] ?? id,
+                                        sender = uid,
+                                        contentType = context.Request.Headers["content-type"] ?? ""
+                                    };
+
+                                    string? uf = JsonConvert.SerializeObject(u);
+                                    if (uf == null) throw new Exception("???");
+                                    File.WriteAllText("data/upload/" + fpname, uf);
+
+                                    res = JsonConvert.SerializeObject(new fileUploadResponse("success","%SERVER%getmedia?file=" + fpname));
+                                    context.Response.StatusCode = statuscode;
+                                    context.Response.ContentType = "text/json";
+                                    byte[] bts = Encoding.UTF8.GetBytes(res);
+                                    context.Response.OutputStream.Write(bts, 0, bts.Length);
+                                    context.Response.KeepAlive = false;
+                                    context.Response.Close();
+                                    string extension = u.contentType.Split("/")[1];
+                                    if (extension == "png" || extension == "jpg" || extension == "jpeg" || extension == "gif" || extension == "bmp")
+                                        mediaProcesserJobs.Add(id);
+                                }
+                            });
+                            writeRes = false;
+                        }else {
+                            statuscode = 404;
+                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "No file."));
+                        }
+                    }else {
+                        statuscode = 404;
+                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "No file."));
+                    }
+                }else {
+                    statuscode = 404;
+                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
                 }
-                //Console.WriteLine("Respone given to a request.");
-                respond(); // Restart it for another request
+            }else {
+                statuscode = 411;
+                res = JsonConvert.SerializeObject(new serverResponse("error"));
             }
-        });
+        }
+        //Console.WriteLine("Respone given to a request.");
+    }
+
+    static void respondcall(IAsyncResult result) {
+        HttpListener? listener = (HttpListener?) result.AsyncState;
+        if (listener == null) return;
+        HttpListenerContext? context = listener.EndGetContext(result);
+        _httpListener.BeginGetContext(new AsyncCallback(respondcall),_httpListener);
+        if (context != null) {
+            respond(context);
+        }
     }
 
     static void saveData() {
@@ -2313,7 +2259,11 @@ internal class Program
         Console.WriteLine("Saving Chats...");
         foreach (var c in chatsCache) { // Save chats in memory to files
             Console.WriteLine("Saving " + c.Key);
-            c.Value.saveChat();
+            try {
+                c.Value.saveChat();
+            }catch (Exception e) {
+                Console.WriteLine(e.ToString());
+            }
         }
     }
 
@@ -2383,7 +2333,7 @@ internal class Program
         _httpListener.Start();
         Console.WriteLine("Server started. On ports " + HTTPport + " and " + HTTPSport);
         // Start responding for server
-        respond();
+        _httpListener.BeginGetContext(new AsyncCallback(respondcall),_httpListener);
         Console.WriteLine("Type exit to exit, type save to save.");
         autoSaveTick(); // Start the autosave ticker
         new Thread(mediaProcesser).Start();
