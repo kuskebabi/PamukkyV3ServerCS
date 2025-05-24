@@ -75,18 +75,25 @@ internal class Program
             user = uid;
         }
 
-        public void setTyping(string chatid) {
-            Chat? chat = Chat.getChat(chatid);
-            if (chat != null) {
-                typetime = DateTime.Now;
-                typingChat = chatid;
-                chat.setTyping(user);
-                Task.Delay(3100).ContinueWith((task) => { // automatically set user as not typing.
-                    if (chatid == typingChat && !(typetime.Value.AddSeconds(3) > DateTime.Now)) {
-                        typetime = null;
-                        chat.remTyping(user);
-                    }
-                });
+        public void setTyping(string? chatid) {
+            //Remove typing if null was passed
+            if (chatid == null) {
+                Chat? chat = Chat.getChat(typingChat);
+                if (chat != null) chat.remTyping(user);
+            }else {
+                //Set user as typing at the chat
+                Chat? chat = Chat.getChat(chatid);
+                if (chat != null) {
+                    typetime = DateTime.Now;
+                    typingChat = chatid;
+                    chat.setTyping(user);
+                    Task.Delay(3100).ContinueWith((task) => { // automatically set user as not typing.
+                        if (chatid == typingChat && !(typetime.Value.AddSeconds(3) > DateTime.Now)) { //Check if it's the same typing update.
+                            typetime = null;
+                            chat.remTyping(user);
+                        }
+                    });
+                }
             }
         }
     }
@@ -449,6 +456,10 @@ internal class Program
         }
 
         void addupdate(string id, Dictionary<string,object?> update) {
+            if (id == "" || update == null) {
+                return;
+            }
+
             updates[id] = update;
 
             Task.Delay(6000).ContinueWith((task) => { //remove updater keys after delay so it doesn't stay too much.
@@ -1289,7 +1300,7 @@ internal class Program
                                                 chat.sendMessage(msg);
                                                 var userstatus = getuserstatus(uid);
                                                 if (userstatus != null) {
-                                                    userstatus.setTyping("");
+                                                    userstatus.setTyping(null);
                                                 }
                                                 res = JsonConvert.SerializeObject(new serverResponse("done"));
                                             }else {
