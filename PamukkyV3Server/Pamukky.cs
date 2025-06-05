@@ -440,10 +440,19 @@ internal class Program
         public Chat? mainchat = null;
         public bool isgroup = false;
         Group group = new();
-        private const int pagesize = 48; //Increase this to get more messages
-        public Dictionary<string,Dictionary<string,object?>> updates = new();
+        public Dictionary<long,Dictionary<string,object?>> updates = new();
         private Dictionary<string,chatMessageFormatted> formatcache = new();
         public List<string> typingUsers = new();
+        public long newid = 0;
+
+        int getIndexOfKeyInDictionary(string key)
+        {
+            for(int i = 0; i < Count; ++i)
+            {
+                if (Keys.ElementAt(i) == key) return i;
+            }
+            return -1;
+        }
 
         public void setTyping(string uid) {
             if (!typingUsers.Contains(uid)) {
@@ -455,16 +464,93 @@ internal class Program
             typingUsers.Remove(uid);
         }
 
-        void addupdate(string id, Dictionary<string,object?> update) {
-            if (id == "" || update == null) {
-                return;
+        void addupdate(Dictionary<string,object?> update) {
+            if (update["event"] == "DELETED") {
+                string msgid = update["id"].ToString() ?? "";
+                int i = 0;
+                while (i < updates.Count) {
+                    var oupdate = updates.ElementAt(i);
+                    if ((oupdate.Value["id"].ToString() ?? "") == msgid) {
+                        updates.Remove(oupdate.Key);
+                    }else {
+                        i += 1;
+                    }
+                }
+            }
+            if (update["event"] == "REACT") {
+                string msgid = update["id"].ToString() ?? "";
+                int i = 0;
+                while (i < updates.Count) {
+                    var oupdate = updates.ElementAt(i);
+                    if (oupdate.Value["id"] == msgid && oupdate.Value["event"] == "REACT") {
+                        updates.Remove(oupdate.Key);
+                    }else {
+                        i += 1;
+                    }
+                }
+            }
+            if (update["event"] == "UNPINNED") {
+                string msgid = update["id"].ToString() ?? "";
+                int i = 0;
+                while (i < updates.Count) {
+                    var oupdate = updates.ElementAt(i);
+                    if (oupdate.Value["id"] == msgid && oupdate.Value["event"] == "PINNED") {
+                        updates.Remove(oupdate.Key);
+                    }else {
+                        i += 1;
+                    }
+                }
+            }
+            if (update["event"] == "PINNED") {
+                string msgid = update["id"].ToString() ?? "";
+                int i = 0;
+                while (i < updates.Count) {
+                    var oupdate = updates.ElementAt(i);
+                    if (oupdate.Value["id"] == msgid && oupdate.Value["event"] == "UNPINNED") {
+                        updates.Remove(oupdate.Key);
+                    }else {
+                        i += 1;
+                    }
+                }
+            }
+            newid += 1;
+            updates[newid] = update;
+        }
+
+        public Dictionary<long,Dictionary<string,object?>>? getUpdates(string uid, long since) {
+            Dictionary<long,Dictionary<string,object?>> updatesSince = new();
+            if (updates.Count == 0) {
+                return updatesSince;
+            }else {
+                if (since > updates.Keys.Max()) {
+                    return updatesSince;
+                }else if (since == 0) {
+                    since = updates.Keys.Min();
+                }
             }
 
-            updates[id] = update;
-
-            Task.Delay(6000).ContinueWith((task) => { //remove updater keys after delay so it doesn't stay too much.
-                updates.Remove(id);
-            });
+            //var keysToRemove = new List<long>();
+            for(int i = 0; i < updates.Count; ++i)
+            {
+                long id = updates.Keys.ElementAt(i);
+                if (id > since) {
+                    updatesSince.Add(id, updates[id]);
+                    /*if (!updates[id].ContainsKey("read") || !(updates[id]["read"] is List<string>)) {
+                        updates[id]["read"] = new List<string>();
+                    }
+                    var reads = (List<string>?)updates[id]["read"];
+                    if (reads != null && !reads.Contains(uid)) {
+                        reads.Add(uid);
+                        if (reads.Count == group.members.Count) {
+                            keysToRemove.Add(id);
+                        }
+                    }*/
+                };
+            }
+            /*foreach (long key in keysToRemove) {
+                updates.Remove(key);
+            }*/
+            return updatesSince;
         }
 
         private chatMessageFormatted? formatMessage(string key) {
@@ -495,7 +581,7 @@ internal class Program
             }
             return fd;
         }
-        public Chat getPage(int page = 0) {
+        /*public Chat getPage(int page = 0) {
             if (Count - 1 > pagesize) {
                 Chat rtrn = new() {chatid = chatid, mainchat = this};
                 int index = (Count - 1) - (page * pagesize);
@@ -508,6 +594,62 @@ internal class Program
                 return rtrn;
             }
             return this;
+        }*/
+        public Chat getMessages(string prefix = "") {
+            Console.WriteLine(prefix);
+            Chat chat = new() {chatid = chatid, mainchat = this};
+            if (prefix.Contains("-")) {
+                string[] split = prefix.Split("-");
+                string? msgid1 = getMessageIDFromPrefix(split[0]);
+                string? msgid2 = getMessageIDFromPrefix(split[1]);
+                //Console.WriteLine("from: " + msgid1 + " To: " + msgid2);
+                //Check if they exist
+                if (msgid1 != null && msgid2 != null) {
+                    int i1 = getIndexOfKeyInDictionary(msgid1);
+                    int i2 = getIndexOfKeyInDictionary(msgid2);
+                    int fromi = 0;
+                    int toi = 0;
+                    if (i1 > i2) {
+                        fromi = i2;
+                        toi = i1;
+                    }else {
+                        fromi = i1;
+                        toi = i2;
+                    }
+                    //Console.WriteLine("from: " + fromi + " To: " + toi);
+                    int index = fromi;
+                    //Console.WriteLine(Count);
+                    while (index <= toi) {
+                        //Console.WriteLine(index);
+                        chat.Add(Keys.ElementAt(index),Values.ElementAt(index));
+                        index += 1;
+                    }
+                }else {
+                    //Console.WriteLine("Failled null match");
+                }
+            }else {
+                string? id = getMessageIDFromPrefix(prefix);
+                if (id != null) chat.Add(id, this[id]);
+            }
+            return chat;
+        }
+
+        public string? getMessageIDFromPrefix(string prefix) {
+            if (Count == 0)  {
+                return null;
+            }
+            if (prefix.StartsWith("#^")) { //Don't catch errors, entire thing should fail already.
+                int id = int.Parse(prefix.Replace("#^",""));
+                if (id < Count && id > -1) return Keys.ElementAt(id);
+            }else if (prefix.StartsWith("#")) {
+                int id = (Count - 1) - int.Parse(prefix.Replace("#",""));
+                if (id < Count && id > -1) return Keys.ElementAt(id);
+            }else {
+                if (ContainsKey(prefix)) {
+                    return prefix;
+                }
+            }
+            return null;
         }
 
         public chatMessage? getLastMessage() {
@@ -518,13 +660,15 @@ internal class Program
         }
 
         public void sendMessage(chatMessage msg, bool notify = true) {
-            string id = DateTime.Now.Ticks.ToString();
+            newid++;
+            string id = newid.ToString();
             Add(id,msg);
             chatMessageFormatted? f = formatMessage(id);
             if (f != null) {
                 Dictionary<string,object?> update = f.toDictionary();
                 update["event"] = "NEWMESSAGE";
-                addupdate(id, update);
+                update["id"] = id;
+                addupdate(update);
                 if (notify)
                 foreach (string member in group.members.Keys) {
                     if (msg.sender != member)
@@ -544,7 +688,8 @@ internal class Program
             Remove(msgid);
             Dictionary<string,object?> update = new();
             update["event"] = "DELETED";
-            addupdate(msgid, update);
+            update["id"] = msgid;
+            addupdate(update);
         }
 
         public messageReactions reactMessage(string msgid, string uid, string reaction) {
@@ -562,7 +707,8 @@ internal class Program
                 Dictionary<string,object?> update = new();
                 update["event"] = "REACTIONS";
                 update["rect"] = rect;
-                addupdate(msgid, update);
+                update["id"] = msgid;
+                addupdate(update);
                 return rect;
             }
             return new();
@@ -575,7 +721,8 @@ internal class Program
                 if (f != null) {
                     Dictionary<string,object?> update = f.toDictionary();
                     update["event"] = this[msgid].pinned ? "PINNED" : "UNPINNED";
-                    addupdate(msgid, update);
+                    update["id"] = msgid;
+                    addupdate(update);
                 }
                 if (formatcache.ContainsKey(msgid)) {
                     formatcache[msgid].pinned = this[msgid].pinned;
@@ -643,7 +790,7 @@ internal class Program
                 return chatsCache[chat];
             }
             //Check validity
-            if (chat.Contains("-")) {
+            if (chat.Contains("-")) { //both users should exist
                 string[] spl = chat.Split("-");
                 if (!Directory.Exists("data/info/" + spl[0])) {
                     return null;
@@ -666,8 +813,13 @@ internal class Program
                 c = new Chat();
             }
             if (c != null) {
+                if (File.Exists("data/chat/" + chat + "/updates")) {
+                    var u = JsonConvert.DeserializeObject<Dictionary<long,Dictionary<string,object?>>>(File.ReadAllText("data/chat/" + chat + "/updates"));
+                    if (u != null) c.updates = u;
+                }
                 c.chatid = chat;
                 c.isgroup = !chat.Contains("-");
+                c.newid = DateTime.Now.Ticks;
                 if (c.isgroup) {
                     // Load the real group
                     Group? g = Group.get(chat);
@@ -693,6 +845,8 @@ internal class Program
             Directory.CreateDirectory("data/chat/" + chatid);
             string c = JsonConvert.SerializeObject(this);
             File.WriteAllTextAsync("data/chat/" + chatid + "/chat",c);
+            string u = JsonConvert.SerializeObject(updates);
+            File.WriteAllTextAsync("data/chat/" + chatid + "/updates",u);
         }
     }
 
@@ -1238,7 +1392,34 @@ internal class Program
                                     Chat? chat = Chat.getChat(a["chatid"]);
                                     if (chat != null) {
                                         if (chat.canDo(uid,Chat.chatAction.Read)) {
-                                            res = JsonConvert.SerializeObject(chat.getPage(a.ContainsKey("page") ? int.Parse(a["page"]) : 0).format());
+                                            int page = a.ContainsKey("page") ? int.Parse(a["page"]) : 0;
+                                            string prefix = "#" + (page * 48) + "-#" + ((page + 1) * 48);
+                                            res = JsonConvert.SerializeObject(chat.getMessages(prefix).format());
+                                        }else {
+                                            statuscode = 401;
+                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED","You don't have permission to do this action."));
+                                        }
+                                    }else {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT","Couldn't open chat. Is it valid????"));
+                                    }
+                                }else {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "getmessages") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("prefix")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    Chat? chat = Chat.getChat(a["chatid"]);
+                                    if (chat != null) {
+                                        if (chat.canDo(uid,Chat.chatAction.Read)) {
+                                            res = JsonConvert.SerializeObject(chat.getMessages(a["prefix"]).format());
                                         }else {
                                             statuscode = 401;
                                             res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED","You don't have permission to do this action."));
@@ -1521,13 +1702,13 @@ internal class Program
                             }
                         }else if (url == "getupdates") { //Chat updates
                             var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
-                            if (a != null && a.ContainsKey("token") && a.ContainsKey("id")) {
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("id") && a.ContainsKey("since")) {
                                 string? uid = GetUIDFromToken(a["token"]);
                                 if (uid != null) {
                                     Chat? chat = Chat.getChat(a["id"]);
                                     if (chat != null) {
                                         if (chat.canDo(uid,Chat.chatAction.Read)) { //Check if user can even "read" it at all
-                                            res = JsonConvert.SerializeObject(chat.updates);
+                                            res = JsonConvert.SerializeObject(chat.getUpdates(uid, long.Parse(a["since"]))); //assume since can only be int.
                                         }else {
                                             statuscode = 401;
                                             res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
