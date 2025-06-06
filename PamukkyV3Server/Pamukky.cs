@@ -465,48 +465,48 @@ internal class Program
         }
 
         void addupdate(Dictionary<string,object?> update) {
-            if (update["event"] == "DELETED") {
-                string msgid = update["id"].ToString() ?? "";
+            if ((update["event"] ?? "").ToString() == "DELETED") {
+                string msgid = (update["id"] ?? "").ToString() ?? "";
                 int i = 0;
                 while (i < updates.Count) {
                     var oupdate = updates.ElementAt(i);
-                    if ((oupdate.Value["id"].ToString() ?? "") == msgid) {
+                    if (((oupdate.Value["id"] ?? "").ToString() ?? "") == msgid) {
                         updates.Remove(oupdate.Key);
                     }else {
                         i += 1;
                     }
                 }
             }
-            if (update["event"] == "REACT") {
-                string msgid = update["id"].ToString() ?? "";
+            if ((update["event"] ?? "").ToString() == "REACT") {
+                string msgid = (update["id"] ?? "").ToString() ?? "";
                 int i = 0;
                 while (i < updates.Count) {
                     var oupdate = updates.ElementAt(i);
-                    if (oupdate.Value["id"] == msgid && oupdate.Value["event"] == "REACT") {
+                    if ((oupdate.Value["id"] ?? "").ToString() == msgid && (oupdate.Value["event"] ?? "").ToString() == "REACT") {
                         updates.Remove(oupdate.Key);
                     }else {
                         i += 1;
                     }
                 }
             }
-            if (update["event"] == "UNPINNED") {
-                string msgid = update["id"].ToString() ?? "";
+            if ((update["event"] ?? "").ToString() == "UNPINNED") {
+                string msgid = (update["id"] ?? "").ToString() ?? "";
                 int i = 0;
                 while (i < updates.Count) {
                     var oupdate = updates.ElementAt(i);
-                    if (oupdate.Value["id"] == msgid && oupdate.Value["event"] == "PINNED") {
+                    if ((oupdate.Value["id"] ?? "").ToString() == msgid && (oupdate.Value["event"] ?? "").ToString() == "PINNED") {
                         updates.Remove(oupdate.Key);
                     }else {
                         i += 1;
                     }
                 }
             }
-            if (update["event"] == "PINNED") {
-                string msgid = update["id"].ToString() ?? "";
+            if ((update["event"] ?? "").ToString() == "PINNED") {
+                string msgid = (update["id"] ?? "").ToString() ?? "";
                 int i = 0;
                 while (i < updates.Count) {
                     var oupdate = updates.ElementAt(i);
-                    if (oupdate.Value["id"] == msgid && oupdate.Value["event"] == "UNPINNED") {
+                    if ((oupdate.Value["id"] ?? "").ToString() == msgid && (oupdate.Value["event"] ?? "").ToString() == "UNPINNED") {
                         updates.Remove(oupdate.Key);
                     }else {
                         i += 1;
@@ -1708,7 +1708,7 @@ internal class Program
                                     Chat? chat = Chat.getChat(a["id"]);
                                     if (chat != null) {
                                         if (chat.canDo(uid,Chat.chatAction.Read)) { //Check if user can even "read" it at all
-                                            res = JsonConvert.SerializeObject(chat.getUpdates(uid, long.Parse(a["since"]))); //assume since can only be int.
+                                            res = JsonConvert.SerializeObject(chat.getUpdates(uid, long.Parse(a["since"])));
                                         }else {
                                             statuscode = 401;
                                             res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
@@ -1922,7 +1922,7 @@ internal class Program
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else if (url == "getgroup") {
+                        }else if (url == "getgroup") { //get group info
                             var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                             if (a != null && a.ContainsKey("groupid")) {
                                 string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
@@ -1947,7 +1947,7 @@ internal class Program
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else if (url == "getinfo") {
+                        }else if (url == "getinfo") { //get user or group info
                             var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                             if (a != null && a.ContainsKey("id")) {
                                 string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
@@ -1981,7 +1981,7 @@ internal class Program
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else if (url == "getgroupusers" || url == "getgroupmembers") { //getgroupmembers is new name
+                        }else if (url == "getgroupusers" || url == "getgroupmembers") { //getgroupmembers is new name, gets the members list in json format.
                             var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                             if (a != null && a.ContainsKey("groupid")) {
                                 string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
@@ -2001,7 +2001,7 @@ internal class Program
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else if (url == "getbannedgroupmembers") { //getgroupmembers is new name
+                        }else if (url == "getbannedgroupmembers") { //gets banned group members in the group
                             var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                             if (a != null && a.ContainsKey("groupid")) {
                                 string uid = GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
@@ -2021,7 +2021,7 @@ internal class Program
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else if (url == "getgroupuserscount" || url == "getgroupmemberscount") { //getgroupmemberscount is new name
+                        }else if (url == "getgroupuserscount" || url == "getgroupmemberscount") { //getgroupmemberscount is new name, returns group member count as string. like "5"
                             var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                             if (a != null && a.ContainsKey("groupid")) {
                                 Group? gp = Group.get(a["groupid"]);
@@ -2156,7 +2156,7 @@ internal class Program
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else if (url == "kickuser") {
+                        }else if (url == "kickuser") { //Kicks a user from the group. They can rejoin.
                             var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
                                 string? uid = GetUIDFromToken(a["token"]);
@@ -2187,7 +2187,7 @@ internal class Program
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else if (url == "banuser") {
+                        }else if (url == "banuser") { //bans a user from the group. they can't join until they are unbanned.
                             var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
                                 string? uid = GetUIDFromToken(a["token"]);
@@ -2218,7 +2218,7 @@ internal class Program
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else if (url == "unbanuser") {
+                        }else if (url == "unbanuser") { //Unbans a user, they can rejoin.
                             var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid")) {
                                 string? uid = GetUIDFromToken(a["token"]);
@@ -2296,7 +2296,7 @@ internal class Program
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
-                        }else if (url == "edituser") { //Group role edit
+                        }else if (url == "edituser") { //Edits role of user in the group.
                             var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid") && a.ContainsKey("role")) {
                                 string? uid = GetUIDFromToken(a["token"]);
@@ -2363,7 +2363,7 @@ internal class Program
                     }
                 }
             });
-        }else {
+        }else { //Upload call
             if (context.Request.Headers["token"] != null) {
                 string? uid = GetUIDFromToken(context.Request.Headers["token"] ?? "");
                 if (uid != null) {
@@ -2511,7 +2511,7 @@ internal class Program
             }
         }
 
-        Console.WriteLine("Pamukky V3 Server C# REWRITE");
+        Console.WriteLine("Pamukky V3 Server");
         //Create save folders
         Directory.CreateDirectory("data");
         Directory.CreateDirectory("data/auth");
