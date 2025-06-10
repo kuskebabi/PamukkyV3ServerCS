@@ -596,7 +596,7 @@ internal class Program
             return this;
         }*/
         public Chat getMessages(string prefix = "") {
-            Console.WriteLine(prefix);
+            //Console.WriteLine(prefix);
             Chat chat = new() {chatid = chatid, mainchat = this};
             if (prefix.Contains("-")) {
                 string[] split = prefix.Split("-");
@@ -640,9 +640,17 @@ internal class Program
             }
             if (prefix.StartsWith("#^")) { //Don't catch errors, entire thing should fail already.
                 int id = int.Parse(prefix.Replace("#^",""));
-                if (id < Count && id > -1) return Keys.ElementAt(id);
+                if (id >= Count)
+                {
+                    id = Count - 1;
+                }
+                if (id > -1) return Keys.ElementAt(id);
             }else if (prefix.StartsWith("#")) {
-                int id = (Count - 1) - int.Parse(prefix.Replace("#",""));
+                int idx = int.Parse(prefix.Replace("#", ""));
+                if (idx >= Count) {
+                    idx = Count - 1;
+                }
+                int id = (Count - 1) - idx;
                 if (id < Count && id > -1) return Keys.ElementAt(id);
             }else {
                 if (ContainsKey(prefix)) {
