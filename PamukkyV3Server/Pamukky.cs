@@ -534,7 +534,32 @@ internal class Program
             {
                 long id = updates.Keys.ElementAt(i);
                 if (id > since) {
-                    updatesSince.Add(id, updates[id]);
+                    Dictionary<string, object?> update;
+                    string eventtype = (updates[id]["event"] ?? "").ToString() ?? "";
+                    string msgid = (updates[id]["id"] ?? "").ToString() ?? "";
+                    if (eventtype == "NEWMESSAGE" || eventtype == "PINNED")
+                    {
+                        chatMessageFormatted? f = formatMessage(msgid);
+                        if (f != null)
+                        {
+                            update = f.toDictionary();
+                        }
+                        else
+                        {
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        update = new();
+                        if (eventtype == "REACTIONS" && ContainsKey(msgid))
+                        {
+                            update["rect"] = this[msgid].reactions;
+                        }
+                    }
+                    update["event"] = eventtype;
+                    update["id"] = msgid;
+                    updatesSince.Add(id, update);
                     /*if (!updates[id].ContainsKey("read") || !(updates[id]["read"] is List<string>)) {
                         updates[id]["read"] = new List<string>();
                     }
@@ -671,25 +696,23 @@ internal class Program
             newid++;
             string id = newid.ToString();
             Add(id,msg);
-            chatMessageFormatted? f = formatMessage(id);
-            if (f != null) {
-                Dictionary<string,object?> update = f.toDictionary();
-                update["event"] = "NEWMESSAGE";
-                update["id"] = id;
-                addupdate(update);
-                if (notify)
-                foreach (string member in group.members.Keys) {
-                    if (msg.sender != member)
-                    notifications.Get(member).Add(id,
-                        new userNotification() {
-                            user = profileShort.fromProfile(GetUserProfile(f.sender)), //Probably would stay like this
-                            content = msg.content,
-                            chatid = chatid
-                        }
-                    );
-                    //Console.WriteLine(JsonConvert.SerializeObject(notifications));
-                }
+            Dictionary<string,object?> update = new();
+            update["event"] = "NEWMESSAGE";
+            update["id"] = id;
+            addupdate(update);
+            if (notify)
+            foreach (string member in group.members.Keys) {
+                if (msg.sender != member)
+                notifications.Get(member).Add(id,
+                    new userNotification() {
+                        user = profileShort.fromProfile(GetUserProfile(msg.sender)), //Probably would stay like this
+                        content = msg.content,
+                        chatid = chatid
+                    }
+                );
+                //Console.WriteLine(JsonConvert.SerializeObject(notifications));
             }
+            
         }
 
         public void deleteMessage(string msgid) {
@@ -714,7 +737,6 @@ internal class Program
                 rect.update();
                 Dictionary<string,object?> update = new();
                 update["event"] = "REACTIONS";
-                update["rect"] = rect;
                 update["id"] = msgid;
                 addupdate(update);
                 return rect;
@@ -727,7 +749,7 @@ internal class Program
                 this[msgid].pinned = !this[msgid].pinned;
                 chatMessageFormatted? f = formatMessage(msgid);
                 if (f != null) {
-                    Dictionary<string,object?> update = f.toDictionary();
+                    Dictionary<string,object?> update = new();
                     update["event"] = this[msgid].pinned ? "PINNED" : "UNPINNED";
                     update["id"] = msgid;
                     addupdate(update);
