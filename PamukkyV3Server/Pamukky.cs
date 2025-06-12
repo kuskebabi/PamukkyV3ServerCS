@@ -28,6 +28,7 @@ internal class Program
     static HttpListener _httpListener = new HttpListener();
     static Dictionary<string, loginCred> loginCreds = new();
     static Dictionary<string, userProfile> userProfileCache = new();
+    static Dictionary<string, userConfig> userConfigCache = new();
     static Dictionary<string, List<chatItem>> userChatsCache = new();
     static Dictionary<string, Chat> chatsCache = new();
     static Dictionary<string, Group> groupsCache = new();
@@ -60,7 +61,51 @@ internal class Program
         public string userID = "";
     }
 
-    class userStatus {
+    class userConfig //mute status and etc.
+    {
+        [JsonIgnore]
+        public string uid = "";
+        public List<string> mutedChats = new();
+
+        public static userConfig? Get(string uid)
+        {
+            if (userConfigCache.ContainsKey(uid))
+            {
+                return userConfigCache[uid];
+            }
+            else
+            {
+                if (File.Exists("data/info/" + uid + "/profile"))
+                { // check if user exists
+                    if (File.Exists("data/info/" + uid + "/config")) // check if config file exists
+                    {
+                        userConfig? uc = JsonConvert.DeserializeObject<userConfig>(File.ReadAllText("data/info/" + uid + "/config"));
+                        if (uc != null)
+                        {
+                            uc.uid = uid;
+                            userConfigCache[uid] = uc;
+                            return uc;
+                        }
+                    }
+                    else // if doesn't exist, create new one
+                    {
+                        userConfig uc = new() { uid = uid };
+                        userConfigCache[uid] = uc;
+                        return uc;
+                    }
+                }
+            }
+            return null;
+        }
+
+        public void Save()
+        {
+            File.WriteAllTextAsync("data/info/" + uid + "/config", JsonConvert.SerializeObject(this)); // save to file
+        }
+    }
+
+    class userStatus
+    {
         public string typingChat = "";
         private DateTime? typetime;
         public string user;
@@ -71,24 +116,32 @@ internal class Program
                 return typetime.Value.AddSeconds(3) > DateTime.Now && chatid == typingChat;
             }
         }*/
-        public userStatus(string uid) {
+        public userStatus(string uid)
+        {
             user = uid;
         }
 
-        public void setTyping(string? chatid) {
+        public void setTyping(string? chatid)
+        {
             //Remove typing if null was passed
-            if (chatid == null) {
+            if (chatid == null)
+            {
                 Chat? chat = Chat.getChat(typingChat);
                 if (chat != null) chat.remTyping(user);
-            }else {
+            }
+            else
+            {
                 //Set user as typing at the chat
                 Chat? chat = Chat.getChat(chatid);
-                if (chat != null) {
+                if (chat != null)
+                {
                     typetime = DateTime.Now;
                     typingChat = chatid;
                     chat.setTyping(user);
-                    Task.Delay(3100).ContinueWith((task) => { // automatically set user as not typing.
-                        if (chatid == typingChat && !(typetime.Value.AddSeconds(3) > DateTime.Now)) { //Check if it's the same typing update.
+                    Task.Delay(3100).ContinueWith((task) =>
+                    { // automatically set user as not typing.
+                        if (chatid == typingChat && !(typetime.Value.AddSeconds(3) > DateTime.Now))
+                        { //Check if it's the same typing update.
                             typetime = null;
                             chat.remTyping(user);
                         }
@@ -700,17 +753,22 @@ internal class Program
             update["event"] = "NEWMESSAGE";
             update["id"] = id;
             addupdate(update);
-            if (notify)
-            foreach (string member in group.members.Keys) {
-                if (msg.sender != member)
-                notifications.Get(member).Add(id,
-                    new userNotification() {
-                        user = profileShort.fromProfile(GetUserProfile(msg.sender)), //Probably would stay like this
-                        content = msg.content,
-                        chatid = chatid
+            if (notify) {
+                var notification = new userNotification() {
+                    user = profileShort.fromProfile(GetUserProfile(msg.sender)), //Probably would stay like this
+                    content = msg.content,
+                    chatid = chatid
+                };
+                foreach (string member in group.members.Keys) {
+                    if (msg.sender != member)
+                    {
+                        userConfig? uc = userConfig.Get(member);
+                        if (uc != null && !uc.mutedChats.Contains(chatid))
+                        {
+                            notifications.Get(member).Add(id, notification);
+                        }
                     }
-                );
-                //Console.WriteLine(JsonConvert.SerializeObject(notifications));
+                }
             }
             
         }
@@ -979,7 +1037,8 @@ internal class Program
         return null;
     }
 
-    static void SetUserProfile(string uid,userProfile up) {
+    static void SetUserProfile(string uid, userProfile up)
+    {
         userProfileCache[uid] = up; //set
         File.WriteAllTextAsync("data/info/" + uid + "/profile", JsonConvert.SerializeObject(up)); //save
     }
@@ -1377,6 +1436,72 @@ internal class Program
                                 statuscode = 411;
                                 res = JsonConvert.SerializeObject(new serverResponse("error"));
                             }
+                        }else if (url == "getmutedchats") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
+                            if (a != null && a.ContainsKey("token")) {
+                                string? uid = GetUIDFromToken(a["token"]);
+                                if (uid != null) {
+                                    userConfig? userconfig = userConfig.Get(uid);
+                                    if (userconfig != null)
+                                    {
+                                        res = JsonConvert.SerializeObject(userconfig.mutedChats);
+                                    }
+                                    else
+                                    {
+                                        statuscode = 500;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                    }
+                                }
+                                else
+                                {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
+                        }else if (url == "mutechat") {
+                            var a = JsonConvert.DeserializeObject<Dictionary<string,object>>(body);
+                            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("toggle") && a["toggle"] is bool) {
+                                string? uid = GetUIDFromToken((a["token"] ?? "").ToString() ?? "");
+                                if (uid != null) {
+                                    userConfig? userconfig = userConfig.Get(uid);
+                                    if (userconfig != null)
+                                    {
+                                        string chatid = (a["chatid"] ?? "").ToString() ?? "";
+                                        if (File.Exists("data/chat/" + chatid + "/chat"))
+                                        {
+                                            if ((bool)a["toggle"] == true) // toggle true > mute, false > unmute.
+                                            {
+                                                if (!userconfig.mutedChats.Contains(chatid))
+                                                { //Don't add duplicates
+                                                    userconfig.mutedChats.Add(chatid);
+                                                }
+                                            }
+                                            else
+                                            {
+                                                userconfig.mutedChats.Remove(chatid);
+                                            }
+                                            userconfig.Save();
+                                        }
+                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                    }
+                                    else
+                                    {
+                                        statuscode = 500;
+                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                    }
+                                }
+                                else
+                                {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                            }else {
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            }
                         }else if (url == "adduserchat") {
                             var a = JsonConvert.DeserializeObject<Dictionary<string,string>>(body);
                             if (a != null && a.ContainsKey("token") && a.ContainsKey("email")) {
@@ -1504,9 +1629,9 @@ internal class Program
                                                 chatMessage msg = new() {
                                                     sender = uid,
                                                     content = (a["content"].ToString() ?? "").Trim(),
-                                                                                        replymsgid = a.ContainsKey("replymsg") ? a["replymsg"].ToString() : null,
-                                                                                        files = files,
-                                                                                        time = datetostring(DateTime.Now)
+                                                    replymsgid = a.ContainsKey("replymsg") ? a["replymsg"].ToString() : null,
+                                                    files = files,
+                                                    time = datetostring(DateTime.Now)
                                                 };
                                                 chat.sendMessage(msg);
                                                 var userstatus = getuserstatus(uid);
@@ -1700,10 +1825,10 @@ internal class Program
                                                                     if (uchat.canDo(uid,Chat.chatAction.Send)) {
                                                                         chatMessage message = new() {
                                                                             forwardedfrom = chat[msgid].sender,
-                                                                                sender = uid,
-                                                                                content = chat[msgid].content,
-                                                                                files = chat[msgid].files,
-                                                                                time = datetostring(DateTime.Now)
+                                                                            sender = uid,
+                                                                            content = chat[msgid].content,
+                                                                            files = chat[msgid].files,
+                                                                            time = datetostring(DateTime.Now)
                                                                         };
                                                                         uchat.sendMessage(message);
                                                                     }
