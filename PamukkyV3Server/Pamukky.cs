@@ -497,6 +497,7 @@ internal class Program
         private Dictionary<string,chatMessageFormatted> formatcache = new();
         public List<string> typingUsers = new();
         public long newid = 0;
+        public bool wasUpdated = false;
 
         int getIndexOfKeyInDictionary(string key)
         {
@@ -518,14 +519,20 @@ internal class Program
         }
 
         void addupdate(Dictionary<string,object?> update) {
-            if ((update["event"] ?? "").ToString() == "DELETED") {
+            wasUpdated = true;
+            if ((update["event"] ?? "").ToString() == "DELETED")
+            {
                 string msgid = (update["id"] ?? "").ToString() ?? "";
                 int i = 0;
-                while (i < updates.Count) {
+                while (i < updates.Count)
+                {
                     var oupdate = updates.ElementAt(i);
-                    if (((oupdate.Value["id"] ?? "").ToString() ?? "") == msgid) {
+                    if (((oupdate.Value["id"] ?? "").ToString() ?? "") == msgid)
+                    {
                         updates.Remove(oupdate.Key);
-                    }else {
+                    }
+                    else
+                    {
                         i += 1;
                     }
                 }
@@ -878,16 +885,22 @@ internal class Program
                 return chatsCache[chat];
             }
             //Check validity
-            if (chat.Contains("-")) { //both users should exist
+            if (chat.Contains("-"))
+            { //both users should exist
                 string[] spl = chat.Split("-");
-                if (!Directory.Exists("data/info/" + spl[0])) {
+                if (!File.Exists("data/info/" + spl[0] + "/profile"))
+                {
                     return null;
                 }
-                if (!Directory.Exists("data/info/" + spl[1])) {
+                if (!File.Exists("data/info/" + spl[1] + "/profile"))
+                {
                     return null;
                 }
-            }else {
-                if (!Directory.Exists("data/info/" + chat)) {
+            }
+            else
+            {
+                if (!File.Exists("data/info/" + chat + "/info"))
+                {
                     return null;
                 }
             }
@@ -930,11 +943,15 @@ internal class Program
             return c;
         }
         public void saveChat() {
-            Directory.CreateDirectory("data/chat/" + chatid);
-            string c = JsonConvert.SerializeObject(this);
-            File.WriteAllTextAsync("data/chat/" + chatid + "/chat",c);
-            string u = JsonConvert.SerializeObject(updates);
-            File.WriteAllTextAsync("data/chat/" + chatid + "/updates",u);
+            if (wasUpdated)
+            {
+                Directory.CreateDirectory("data/chat/" + chatid);
+                string c = JsonConvert.SerializeObject(this);
+                File.WriteAllTextAsync("data/chat/" + chatid + "/chat", c);
+                string u = JsonConvert.SerializeObject(updates);
+                File.WriteAllTextAsync("data/chat/" + chatid + "/updates", u);
+                wasUpdated = false;
+            }
         }
     }
 
