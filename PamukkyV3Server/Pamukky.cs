@@ -51,6 +51,7 @@ internal class Program
 
     class userNotification {
         public string? chatid;
+        public string? userid;
         public profileShort? user;
         public string content = "";
     }
@@ -764,6 +765,7 @@ internal class Program
             if (notify) {
                 var notification = new userNotification() {
                     user = profileShort.fromProfile(GetUserProfile(msg.sender)), //Probably would stay like this
+                    userid = msg.sender,
                     content = msg.content,
                     chatid = chatid
                 };
@@ -1948,7 +1950,17 @@ item.info = profileShort.fromGroup(p);
                                 string? msgid = msg.ToString() ?? "";
                                 if (chat.canDo(uid, Chat.chatAction.Pin, msgid))
                                 {
-                                    chat.pinMessage(msgid);
+                                    bool pinned = chat.pinMessage(msgid);
+                                    if (chat.canDo(uid, Chat.chatAction.Send))
+                                    {
+                                        chatMessage message = new()
+                                        {
+                                            sender = "0",
+                                            content = (pinned ? "" : "UN") + "PINNEDMESSAGE|" + uid + "|" + msgid,
+                                            time = datetostring(DateTime.Now)
+                                        };
+                                        chat.sendMessage(message);
+                                    }
                                 }
                             }
                             res = JsonConvert.SerializeObject(new serverResponse("done"));
@@ -2389,6 +2401,7 @@ item.info = profileShort.fromGroup(p);
                         };
                         g.addUser(uid, "Owner");
                         g.save();
+                        groupsCache[id] = g;
                         Dictionary<string, string> response = new()
                         {
                             ["groupid"] = id
@@ -2703,6 +2716,20 @@ item.info = profileShort.fromGroup(p);
                             };
                             res = JsonConvert.SerializeObject(response);
                             gp.save();
+                            Chat? chat = Chat.getChat(gp.groupID);
+                            if (chat != null)
+                            {
+                                if (chat.canDo(uid, Chat.chatAction.Send))
+                                {
+                                    chatMessage message = new()
+                                    {
+                                        sender = "0",
+                                        content = "JOINGROUP|" + uid,
+                                        time = datetostring(DateTime.Now)
+                                    };
+                                    chat.sendMessage(message);
+                                }
+                            }
                         }
                         else
                         {
@@ -2739,9 +2766,28 @@ item.info = profileShort.fromGroup(p);
                     Group? gp = Group.get(a["groupid"]);
                     if (gp != null)
                     {
+                        bool cansend = false;
+                        Chat? chat = Chat.getChat(gp.groupID);
+                        if (chat != null)
+                        {
+                            if (chat.canDo(uid, Chat.chatAction.Send))
+                            {
+                                cansend = true;
+                            }
+                        }
                         if (gp.removeUser(uid))
                         {
                             gp.save();
+                            if (cansend)
+                            {
+                                chatMessage message = new()
+                                {
+                                    sender = "0",
+                                    content = "LEFTGROUP|" + uid,
+                                    time = datetostring(DateTime.Now)
+                                };
+                                if (chat != null) chat.sendMessage(message);
+                            }
                             res = JsonConvert.SerializeObject(new serverResponse("done"));
                         }
                         else
@@ -2953,6 +2999,20 @@ item.info = profileShort.fromGroup(p);
                             };
                             res = JsonConvert.SerializeObject(response);
                             gp.save();
+                            Chat? chat = Chat.getChat(gp.groupID);
+                            if (chat != null)
+                            {
+                                if (chat.canDo(uid, Chat.chatAction.Send))
+                                {
+                                    chatMessage message = new()
+                                    {
+                                        sender = "0",
+                                        content = "EDITGROUP|" + uid,
+                                        time = datetostring(DateTime.Now)
+                                    };
+                                    chat.sendMessage(message);
+                                }
+                            }
                         }
                         else
                         {
