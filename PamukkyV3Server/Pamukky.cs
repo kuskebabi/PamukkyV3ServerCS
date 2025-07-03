@@ -11,16 +11,10 @@ using System.Net;
 using System.Threading;
 using System.Text;
 using System.Threading.Tasks;
-using System.Linq;
-using System.Net.Http;
-using System.Reflection;
 
 using Konscious.Security.Cryptography;
 using System.Web;
-using System.ComponentModel.DataAnnotations;
-using System.Formats.Tar;
 using System.Collections.Concurrent;
-using System.Globalization;
 
 namespace PamukkyV3;
 
@@ -631,6 +625,7 @@ internal class Program
         public long newid = 0;
         public bool wasUpdated = false;
         public List<Federation> connectedFederations = new();
+        public Chat? pinnedMessages;
 
         int getIndexOfKeyInDictionary(string key)
         {
@@ -764,15 +759,19 @@ internal class Program
                 {
                     since = updates.Keys.Min();
                 }
+                else if (since == -1)
+                {
+                    since = updates.Keys.Max() - 1;
+                }
             }
-
+            
             //var keysToRemove = new List<long>();
             for (int i = 0; i < updates.Count; ++i)
             {
                 long id = updates.Keys.ElementAt(i);
                 if (id > since)
                 {
-                    updatesSince.Add(id, formatUpdate(updates[id]));
+                    updatesSince[id] = formatUpdate(updates[id]);
                     /*if (!updates[id].ContainsKey("read") || !(updates[id]["read"] is List<string>)) {
                         updates[id]["read"] = new List<string>();
                     }
@@ -892,7 +891,7 @@ internal class Program
                     //Console.WriteLine(Count);
                     while (index <= toi) {
                         //Console.WriteLine(index);
-                        chat.Add(Keys.ElementAt(index),Values.ElementAt(index));
+                        chat.Add(Keys.ElementAt(index), Values.ElementAt(index));
                         index += 1;
                     }
                 }else {
@@ -931,9 +930,20 @@ internal class Program
             return null;
         }
 
-        public chatMessage? getLastMessage() {
-            if (Count > 0) {
-                return Values.ElementAt(Count - 1);
+        public chatMessage? getLastMessage(bool previewMode = false) {
+            if (Count > 0)
+            {
+                var ret = Values.ElementAt(Count - 1);
+                if (previewMode)
+                {
+                    ret.content = ret.content.Split("\n")[0];
+                    const int cropsize = 50;
+                    if (ret.content.Length > cropsize && ret.sender != "0")
+                    {
+                        ret.content = ret.content.Substring(0, cropsize);
+                    }
+                }
+                return ret;
             }
             return null;
         }
@@ -1020,40 +1030,41 @@ internal class Program
         {
             if (ContainsKey(msgid))
             {
+                var message = this[msgid];
                 if (val == null)
                 {
-                    val = !this[msgid].pinned;
+                    val = !message.pinned;
                 }
-                if (this[msgid].pinned == val)
+                if (message.pinned == val)
                 {
                     return val.Value;
                 }
-                this[msgid].pinned = val.Value;
+                message.pinned = val.Value;
+                if (message.pinned == true)
+                {
+                    getPinned()[msgid] = message;
+                } else {
+                    getPinned().Remove(msgid);
+                }
                 chatMessageFormatted? f = formatMessage(msgid);
                 if (f != null)
                 {
                     Dictionary<string, object?> update = new();
-                    update["event"] = this[msgid].pinned ? "PINNED" : "UNPINNED";
+                    update["event"] = message.pinned ? "PINNED" : "UNPINNED";
                     update["id"] = msgid;
                     addupdate(update);
                 }
                 if (formatcache.ContainsKey(msgid))
                 {
-                    formatcache[msgid].pinned = this[msgid].pinned;
+                    formatcache[msgid].pinned = message.pinned;
                 }
-                return this[msgid].pinned;
+                return message.pinned;
             }
             return false;
         }
 
         public Chat getPinned() {
-            Chat rtrn = new() {chatid = chatid, mainchat = this};
-            foreach (var kv in this) {
-                if (kv.Value.pinned) {
-                    rtrn[kv.Key] = kv.Value;
-                }
-            }
-            return rtrn;
+            return pinnedMessages ?? new() {chatid = chatid, mainchat = this};
         }
 
         public enum chatAction {
@@ -1125,16 +1136,16 @@ internal class Program
             }
 
             //Load
-            Chat? c;
+            Chat? c = null;
             if (File.Exists("data/chat/" + chat + "/chat"))
             {
                 c = JsonConvert.DeserializeObject<Chat>(await File.ReadAllTextAsync("data/chat/" + chat + "/chat"));
                 // If that is null, we should NOT load the chat at all
-            }
-            else
+            }else
             {
-                c = new Chat();
+                if (!chat.Contains("@")) c = new Chat();
             }
+            
             if (chat.Contains("@"))
             {
                 string[] split = chat.Split("@");
@@ -1146,40 +1157,56 @@ internal class Program
                     c = await connection.getChat(id);
                 }
             }
+            
             if (c != null)
+            {
+                if (File.Exists("data/chat/" + chat + "/updates"))
                 {
-                    if (File.Exists("data/chat/" + chat + "/updates"))
+                    try
                     {
                         var u = JsonConvert.DeserializeObject<ConcurrentDictionary<long, Dictionary<string, object?>>>(await File.ReadAllTextAsync("data/chat/" + chat + "/updates"));
                         if (u != null) c.updates = u;
                     }
-                    c.chatid = chat;
-                    c.isgroup = !chat.Contains("-");
-                    c.newid = DateTime.Now.Ticks;
-                    if (c.isgroup)
-                    {
-                        // Load the real group
-                        Group? g = await Group.get(chat);
-                        if (g == null)
-                        {
-                            throw new Exception("404"); //Other part of the validity check
-                        }
-                        c.group = g;
-                    }
-                    else
-                    {
-                        // Make a fake group
-                        string[] users = chat.Split("-");
-                        foreach (string user in users)
-                        {
-                            c.group.members[user] = new groupMember() { user = user };
-                        }
-                    }
-                    chatsCache[chat] = c;
+                    catch { } //Ignore...
                 }
+                c.chatid = chat;
+                c.isgroup = !chat.Contains("-");
+                c.newid = DateTime.Now.Ticks;
+                if (c.isgroup)
+                {
+                    // Load the real group
+                    Group? g = await Group.get(chat);
+                    if (g == null)
+                    {
+                        throw new Exception("404"); //Other part of the validity check
+                    }
+                    c.group = g;
+                }
+                else
+                {
+                    // Make a fake group
+                    string[] users = chat.Split("-");
+                    foreach (string user in users)
+                    {
+                        c.group.members[user] = new groupMember() { user = user };
+                    }
+                }
+
+                c.pinnedMessages = new() { chatid = chat, mainchat = c };
+                foreach (var kv in c)
+                {
+                    if (kv.Value.pinned)
+                    {
+                        c.pinnedMessages[kv.Key] = kv.Value;
+                    }
+                }
+                chatsCache[chat] = c;
+            }
             return c;
         }
-        public void saveChat() {
+        
+        public void saveChat()
+        {
             if (wasUpdated)
             {
                 Directory.CreateDirectory("data/chat/" + chatid);
@@ -1200,7 +1227,7 @@ internal class Program
         public string? user = null;
         public string? group = null;
 
-        //for preview at chats list, TODO: SET NULL BEFORE SAVE
+        //for preview at chats list.
         //public profileShort? info = null;
         public chatMessage? lastmessage = null;
     }
@@ -1316,6 +1343,7 @@ internal class Program
             catch (Exception e)
             {
                 Console.WriteLine(e.ToString());
+                connectingFederations.Remove(server);
                 return null;
             }
         }
@@ -2098,7 +2126,7 @@ item.info = profileShort.fromGroup(p);
                             {
                                 if (chat.canDo(uid, Chat.chatAction.Read))
                                 { //Check for read permission before giving the last message
-                                    item.lastmessage = chat.getLastMessage();
+                                    item.lastmessage = chat.getLastMessage(true);
                                 }
                             }
                         }
@@ -4261,12 +4289,16 @@ item.info = profileShort.fromGroup(p);
                 res = e.ToString();
                 Console.WriteLine(e.ToString());
             }
-            context.Response.StatusCode = statuscode;
-            context.Response.ContentType = "text/json";
-            byte[] bts = Encoding.UTF8.GetBytes(res);
-            context.Response.OutputStream.Write(bts, 0, bts.Length);
-            context.Response.Close();
-                
+            
+            try
+            {
+                context.Response.StatusCode = statuscode;
+                context.Response.ContentType = "text/json";
+                byte[] bts = Encoding.UTF8.GetBytes(res);
+                context.Response.OutputStream.Write(bts, 0, bts.Length);
+                context.Response.Close();
+            }
+            catch { }
         }
         else
         { //Upload call
@@ -4348,6 +4380,7 @@ item.info = profileShort.fromGroup(p);
                     res = JsonConvert.SerializeObject(new serverResponse("error"));
                 }
             }
+            // Getmedia call
             else if (url.StartsWith("getmedia"))
             { //Needs improvement
                 if (context.Request.QueryString["file"] != null)
@@ -4366,7 +4399,7 @@ item.info = profileShort.fromGroup(p);
                             }
                             context.Response.StatusCode = statuscode;
                             string path = "data/upload/" + file + "." + (type == "thumb" ? "thumb" : "file");
-                            if (File.Exists(path))
+                            async void sendFile()
                             {
                                 var fileStream = File.OpenRead(path);
                                 context.Response.KeepAlive = false;
@@ -4375,11 +4408,29 @@ item.info = profileShort.fromGroup(p);
                                 fileStream.Close();
                                 fileStream.Dispose();
                             }
+                            if (File.Exists(path))
+                            {
+                                sendFile();
+                            }
                             else
                             {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "File doesn't exist, could be the thumbnail."));
-                                //mediaProcesserJobs.Add(file); //Generate it for next visits. (well, could be used to spam the server. ig just ignore old images for now.)
+                                string apath = "data/upload/" + file + ".file";
+                                bool error = !File.Exists(apath);
+
+                                if (error)
+                                {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new serverResponse("error", "File doesn't exist, could be the thumbnail."));
+                                }
+                                else
+                                {
+                                    if (!mediaProcesserJobs.Contains(file)) mediaProcesserJobs.Add(file); //Generate it for next visits and current one
+                                    while (!File.Exists(path))
+                                    {
+                                        await Task.Delay(1000);
+                                    }
+                                    sendFile();
+                                }
                             }
                         }
                         else
