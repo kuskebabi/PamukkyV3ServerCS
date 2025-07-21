@@ -18,1607 +18,105 @@ using System.Collections.Concurrent;
 
 namespace PamukkyV3;
 
-internal class Program
+internal class Pamukky
 {
+    //  ---- Constants for stuff ----
+    // Thumbnail generation.
     public const int thumbSize = 256;
     public const int thumbQuality = 75;
+    // Pamuk (user 0) profile, as string...
+    public const string pamukProfile = "{\"name\":\"Pamuk\",\"picture\":\"\",\"description\":\"Birb!!!\"}"; //Direct reply for clients, no need to make class and make it json as it's always the same.
+    // Date serialization, do not change unless you apply it to clients too.
     public const string datetimeFormat = "MM dd yyyy, HH:mm zzz";
-    static HttpListener _httpListener = new HttpListener();
+
+    // ---- Caching ----
     static ConcurrentDictionary<string, loginCred> loginCreds = new();
-    static ConcurrentDictionary<string, userProfile> userProfileCache = new();
-    static ConcurrentDictionary<string, userConfig> userConfigCache = new();
-    static ConcurrentDictionary<string, List<chatItem>> userChatsCache = new();
-    static ConcurrentDictionary<string, Chat> chatsCache = new();
-    static ConcurrentDictionary<string, Group> groupsCache = new();
-    static ConcurrentDictionary<string, userStatus> userstatus = new(); //Current user status that might need to be "private"
-    static Notifications notifications = new();
-    static string pamukProfile = "{\"name\":\"Pamuk\",\"picture\":\"\",\"description\":\"Birb!!!\"}"; //Direct reply for clients, no need to make class and make it json as it's always the same.
-    static HttpClient? federationClient = null;
-    static ConcurrentDictionary<string, Federation> federations = new();
-    static string thisserverurl = "http://localhost:4268/";
 
-    class Notifications : ConcurrentDictionary<string, ConcurrentDictionary<string, userNotification>>
+    // ---- Http ----
+    static HttpListener _httpListener = new HttpListener();
+    
+    /// <summary>
+    /// Converts DateTime to Pamukky-like date string.
+    /// </summary>
+    /// <param name="date"></param>
+    /// <returns></returns>
+    public static string dateToString(DateTime date) {
+        return date.ToString(datetimeFormat);
+    }
+
+    /// <summary>
+    /// Uploaded file information.
+    /// </summary>
+    public class FileUpload
     {
-        public ConcurrentDictionary<string, userNotification> Get(string uid)
-        {
-            if (!ContainsKey(uid))
-            {
-                this[uid] = new();
-            }
-            return this[uid];
-        }
-    }
-
-    public static string datetostring(DateTime dt) {
-        return dt.ToString(datetimeFormat);
-    }
-
-    class userNotification {
-        public string? chatid;
-        public string? userid;
-        public profileShort? user;
-        public string content = "";
-    }
-
-    class loginCred {
-        public string EMail = "";
-        public string Password = "";
-        public string userID = "";
-    }
-
-    class userConfig //mute status and etc.
-    {
-        [JsonIgnore]
-        public string uid = "";
-        public List<string> mutedChats = new();
-
-        public static async Task<userConfig?> Get(string uid)
-        {
-            if (uid.Contains("@")) return null;
-            if (userConfigCache.ContainsKey(uid))
-            {
-                return userConfigCache[uid];
-            }
-            else
-            {
-                if (File.Exists("data/info/" + uid + "/profile"))
-                { // check if user exists
-                    if (File.Exists("data/info/" + uid + "/config")) // check if config file exists
-                    {
-                        userConfig? uc = JsonConvert.DeserializeObject<userConfig>(await File.ReadAllTextAsync("data/info/" + uid + "/config"));
-                        if (uc != null)
-                        {
-                            uc.uid = uid;
-                            userConfigCache[uid] = uc;
-                            return uc;
-                        }
-                    }
-                    else // if doesn't exist, create new one
-                    {
-                        userConfig uc = new() { uid = uid };
-                        userConfigCache[uid] = uc;
-                        return uc;
-                    }
-                }
-            }
-            return null;
-        }
-
-        public void Save()
-        {
-            File.WriteAllTextAsync("data/info/" + uid + "/config", JsonConvert.SerializeObject(this)); // save to file
-        }
-    }
-
-    class userStatus
-    {
-        public string typingChat = "";
-        private DateTime? typetime;
-        public string user;
-        /*public bool getTyping(string chatid) {
-            if (typetime == null) {
-                return false;
-            }else {
-                return typetime.Value.AddSeconds(3) > DateTime.Now && chatid == typingChat;
-            }
-        }*/
-        public userStatus(string uid)
-        {
-            user = uid;
-        }
-
-        public async void setTyping(string? chatid)
-        {
-            //Remove typing if null was passed
-            if (chatid == null)
-            {
-                Chat? chat = await Chat.getChat(typingChat);
-                if (chat != null) chat.remTyping(user);
-            }
-            else
-            {
-                //Set user as typing at the chat
-                Chat? chat = await Chat.getChat(chatid);
-                if (chat != null)
-                {
-                    typetime = DateTime.Now;
-                    typingChat = chatid;
-                    chat.setTyping(user);
-#pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
-                    Task.Delay(3100).ContinueWith((task) =>
-                    { // automatically set user as not typing.
-                        if (chatid == typingChat && !(typetime.Value.AddSeconds(3) > DateTime.Now))
-                        { //Check if it's the same typing update.
-                            typetime = null;
-                            chat.remTyping(user);
-                        }
-                    });
-#pragma warning restore CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
-                }
-            }
-        }
-    }
-
-    class userProfile {
-        public string name = "User";
-        public string picture = "";
-        public string description = "Hello!";
-        private DateTime? onlinetime;
-        public void setOnline() {
-            onlinetime = DateTime.Now;
-        }
-        public string getOnline() {
-            if (onlinetime == null) {
-                return datetostring(DateTime.MinValue);
-            }else {
-                if (onlinetime.Value.AddSeconds(5) > DateTime.Now) {
-                    return "Online";
-                }else { //Return last online
-                    return datetostring(onlinetime.Value);
-                }
-            }
-            
-        }
-    }
-
-    class profileShort { //Short version for userProfile.
-        public string name = "User";
-        public string picture = "";
-        public static profileShort fromProfile(userProfile? profile) {
-            if (profile != null) {
-                return new profileShort() {name = profile.name, picture = profile.picture};
-            }
-            return new profileShort();
-        }
-        public static profileShort fromGroup(Group? group) {
-            if (group != null) {
-                return new profileShort() {name = group.name, picture = group.picture};
-            }
-            return new profileShort();
-        }
-    }
-
-    class Group {
-        [JsonIgnore]
-        public string groupID = "";
-        public string name = "";
-        public string picture = "";
-        public string info = "";
-        public string owner = ""; //The creator, not the current one
-        public string time = ""; //Creation time
-        public bool publicgroup = false; //Can the group be read without joining?
-        public ConcurrentDictionary<string, groupMember> members = new();
-        public Dictionary<string, groupRole> roles = new();
-        public List<string> bannedMembers = new();
-
-        public static async Task<Group?> get(string gid) {
-            if (groupsCache.ContainsKey(gid)) {
-                return groupsCache[gid];
-            }
-            if (gid.Contains("@"))
-            {
-                string[] split = gid.Split("@");
-                string id = split[0];
-                string server = split[1];
-                var connection = await Federation.connect(server);
-                if (connection != null)
-                {
-                    var g = await connection.getGroup(id);
-                    if (g is Group)
-                    {
-                        var group = (Group)g;
-                        group.groupID = gid;
-                        groupsCache[gid] = group;
-                        
-                        return group;
-                    }
-                    else if (g is bool)
-                    {
-                        if ((bool)g)
-                        {
-                            return new Group() { groupID = gid }; //make a interface enough to join it.
-                        }else {
-                            return null;
-                        }
-                    }
-                }
-            }
-            if (File.Exists("data/info/" + gid + "/info"))
-            {
-                Group? g = JsonConvert.DeserializeObject<Group>(await File.ReadAllTextAsync("data/info/" + gid + "/info"));
-                if (g != null)
-                {
-                    g.groupID = gid;
-                    groupsCache[gid] = g;
-                }
-                return g;
-            }
-            return null;
-        }
-        
-        public void swapgroup(Group group) {
-            group.groupID = groupID;
-            groupsCache[groupID] = group;
-        }
-
-        public async Task<bool> addUser(string uid, string role = "Normal")
-        {
-            if (members.ContainsKey(uid))
-            { // To not mess stuff up
-                return true;
-            }
-            if (!roles.ContainsKey(role) && name != "")
-            { // Again, prevent some mess
-                return false;
-            }
-            if (bannedMembers.Contains(uid))
-            { // Block banned users
-                return false;
-            }
-
-            if (groupID.Contains("@")) {
-                string[] split = groupID.Split("@");
-                string id = split[0];
-                string server = split[1];
-                var connection = await Federation.connect(server);
-                if (connection != null)
-                {
-                    var g = await connection.joinGroup(uid, id);
-                    if (g == false) {
-                        return false;
-                    } //continue
-                }
-            }
-
-            if (!uid.Contains("@"))
-            {
-                List<chatItem>? clist = await GetUserChats(uid); // Get chats list of user
-                if (clist == null)
-                {
-                    return false; //user doesn't exist
-                }
-                chatItem g = new()
-                { // New chats list item
-                    group = groupID,
-                    type = "group"
-                };
-                addToChats(clist, g); //Add to their chats list
-                saveUserChats(uid, clist); //Save their chats list
-            }
-            
-            members[uid] = new()
-            { // Add the member! Say hi!!
-                user = uid,
-                role = role,
-                jointime = datetostring(DateTime.Now)
-            };
-
-            Chat? chat = await Chat.getChat(groupID);
-            if (chat != null)
-            {
-                if (chat.canDo(uid, Chat.chatAction.Send))
-                {
-                    chatMessage message = new()
-                    {
-                        sender = "0",
-                        content = "JOINGROUP|" + uid,
-                        time = datetostring(DateTime.Now)
-                    };
-                    chat.sendMessage(message);
-                }
-            }
-
-            return true; //Success!!
-        }
-
-        public async Task<bool> removeUser(string uid) {
-            if (!members.ContainsKey(uid)) { // To not mess stuff up
-                return true;
-            }
-
-            if (groupID.Contains("@")) {
-                string[] split = groupID.Split("@");
-                string id = split[0];
-                string server = split[1];
-                var connection = await Federation.connect(server);
-                if (connection != null)
-                {
-                    var g = await connection.leaveGroup(uid, id);
-                    if (g == false) {
-                        return false;
-                    } //continue
-                }
-            }
-
-            if (!uid.Contains("@"))
-            {
-                List<chatItem>? clist = await GetUserChats(uid); // Get chats list of user
-                if (clist == null)
-                {
-                    return false; //user doesn't exist
-                }
-                removeFromChats(clist, groupID); //Remove chat from their chats list
-                saveUserChats(uid, clist); //Save their chats list
-            }
-
-            Chat? chat = await Chat.getChat(groupID);
-            if (chat != null)
-            {
-                if (chat.canDo(uid, Chat.chatAction.Send))
-                {
-                    chatMessage message = new()
-                    {
-                        sender = "0",
-                        content = "LEFTGROUP|" + uid,
-                        time = datetostring(DateTime.Now)
-                    };
-                    chat.sendMessage(message);
-                }
-            }
-
-            members.Remove(uid, out _); //Goodbye..
-
-            return true; //Success!!
-        }
-
-        public async Task<bool> banUser(string uid) {
-            if (await removeUser(uid)) {
-                if (!bannedMembers.Contains(uid)) {
-                    bannedMembers.Add(uid);
-                }
-                return true;
-            }
-            return false;
-        }
-
-        public void unbanUser(string uid) {
-            bannedMembers.Remove(uid);
-        }
-
-        public enum groupAction {
-            Kick,
-            Ban,
-            EditUser,
-            EditGroup,
-            Read
-        }
-
-        public bool canDo(string user,groupAction action,string? target = null) {
-            if (action == groupAction.Read && publicgroup) return true;
-
-            bool contains = false;
-            groupMember? u = null;
-            groupMember? tu = null;
-            foreach (var member in members) { //find the user
-                if (member.Value.user == user) {
-                    contains = true;
-                    u = member.Value;
-                }
-                if (member.Value.user == target) {
-                    tu = member.Value;
-                }
-            }
-
-            if (!contains || u == null) { // Doesn't exist? block
-                return false;
-            }
-            if (action == groupAction.Read) return true;
-
-            // Get the role
-            groupRole role = roles[u.role];
-            //Check what the role can do depending on the request.
-
-            if (action == groupAction.EditGroup) return role.AllowEditingSettings;
-            if (tu != null) {
-                groupRole trole = roles[tu.role];
-                if (action == groupAction.EditUser) return role.AllowEditingUsers && role.AdminOrder <= trole.AdminOrder;
-                if (action == groupAction.Kick) return role.AllowKicking && role.AdminOrder < trole.AdminOrder;
-                if (action == groupAction.Ban) return role.AllowBanning && role.AdminOrder < trole.AdminOrder;
-            }else {
-                if (action == groupAction.Ban) return role.AllowBanning;
-            }
-
-            return false;
-        }
-
-        public groupRole? getUserRole(string user) {
-            bool contains = false;
-            groupMember? u = null;
-            foreach (var member in members) { //find the user
-                if (member.Value.user == user) {
-                    contains = true;
-                    u = member.Value;
-                }
-            }
-
-            if (!contains || u == null) { // Doesn't exist? block
-                return null;
-            }
-
-            if (!roles.ContainsKey(u.role)) { // Doesn't exist? block.
-                return null;
-            }
-
-            // Get the role
-            groupRole role = roles[u.role];
-
-            return role;
-        }
-
-        public void save() {
-            Directory.CreateDirectory("data/info/" + groupID);
-            string c = JsonConvert.SerializeObject(this);
-            File.WriteAllTextAsync("data/info/" + groupID + "/info",c);
-        }
-    }
-
-    class groupInfo { //stripped Group for /getgroup
-        public string name = "";
-        public string picture = "";
-        public string info = "";
-        public bool publicgroup = false;
-    }
-
-    class groupMember {
-        public string user = "";
-        public string role = "";
-        public string jointime = "";
-    }
-
-    class groupRole {
-        public int AdminOrder = 0;
-        public bool AllowMessageDeleting = true;
-        public bool AllowEditingSettings = true;
-        public bool AllowKicking = true;
-        public bool AllowBanning = true;
-        public bool AllowSending = true;
-        public bool AllowEditingUsers = true;
-        public bool AllowSendingReactions = true;
-        public bool AllowPinningMessages = true;
-    }
-
-    class chatMessage { // Chat message.
-        public string sender = "";
-        public string content = "";
-        public string time = "";
-        public string? replymsgid;
-        public List<string>? files;
-        public string? forwardedfrom;
-        public messageReactions reactions = new();
-        public bool pinned = false;
-    }
-    class messageReaction {
-        public string reaction = "";
-        public string sender = "";
-        public string time = "";
-    }
-
-    class messageEmojiReactions:ConcurrentDictionary<string,messageReaction> {} //Single reaction
-
-    class messageReactions:ConcurrentDictionary<string,messageEmojiReactions> { // All reactions
-        public void update() {
-            List<string> keysToRemove = new();
-            foreach (var mer in this) {
-                if (mer.Value.Count == 0) {
-                    keysToRemove.Add(mer.Key);
-                }
-            }
-            foreach (string k in keysToRemove)
-            {
-                this.Remove(k, out _);
-            }
-        }
-
-        public messageEmojiReactions get(string reaction,bool addnew = false) {
-            if (ContainsKey(reaction)) {
-                return this[reaction];
-            }
-            messageEmojiReactions d = new();
-            if (addnew) this[reaction] = d;
-            return d;
-        }
-    }
-
-    class chatFile {
-        public string url = "";
-        public string? name;
-        public int? size;
-    }
-
-    class chatMessageFormatted:chatMessage { // Chat message formatted for client sending.
-        //public profileShort? senderuser; REMOVED. Data waste.
-        public string? replymsgcontent;
-        public string? replymsgsender;
-        public List<chatFile>? gImages;
-        public List<chatFile>? gVideos;
-        public List<chatFile>? gFiles;
-        //public string? forwardedname; REMOVED. Data waste.
-        public chatMessageFormatted(chatMessage msg) {
-            sender = msg.sender;
-            content = msg.content;
-            time = msg.time;
-            replymsgid = msg.replymsgid;
-            files = msg.files;
-            reactions = msg.reactions;
-            forwardedfrom = msg.forwardedfrom;
-            pinned = msg.pinned;
-            //senderuser = profileShort.fromProfile(GetUserProfile(sender));
-            //if (forwardedfrom != null) {
-            //    forwardedname = profileShort.fromProfile(GetUserProfile(forwardedfrom)).name;
-            //}
-            if (files != null) { //Group file to types.
-                if (gVideos == null) gVideos = new();
-                if (gImages == null) gImages = new();
-                if (gFiles == null) gFiles = new();
-                foreach (string fi in files) {
-                    string file = fi.Replace("%SERVER%getmedia?file=","data/upload/"); //Get path
-                    if (File.Exists(file)) {
-                        fileUpload? f = JsonConvert.DeserializeObject<fileUpload>(File.ReadAllText(file));
-                        if (f != null) {
-                            string[] spl = f.contentType.Split("/");
-                            if (spl.Length > 1) {
-                                string extension = spl[1];
-                                if (extension == "png" || extension == "jpg" || extension == "jpeg" || extension == "gif" || extension == "bmp") {
-                                    gImages.Add(new chatFile() {url = fi});
-                                }else if (extension == "mp4") {
-                                    gVideos.Add(new chatFile() {url = fi});
-                                }else {
-                                    gFiles.Add(new chatFile() {url = fi, name = f.actualName, size = f.size});
-                                }
-                            }
-                        }
-                    }//else, ignore                  
-                }
-            }
-        }
-
-        public Dictionary<string,object?> toDictionary() {
-            Dictionary<string,object?> d = new();
-            //d["senderuser"] = senderuser;
-            d["replymsgcontent"] = replymsgcontent;
-            d["replymsgsender"] = replymsgsender;
-            d["replymsgid"] = replymsgid;
-            d["gImages"] = gImages;
-            d["gVideos"] = gVideos;
-            d["gFiles"] = gFiles;
-            d["sender"] = sender;
-            d["content"] = content;
-            d["time"] = time;
-            d["files"] = files;
-            d["reactions"] = reactions;
-            d["forwardedfrom"] = forwardedfrom;
-            d["pinned"] = pinned;
-            //d["forwardedname"] = forwardedname;
-            return d;
-        }
-    }
-
-    class Chat:OrderedDictionary<string,chatMessage> {
-        public string chatid = "";
-        public Chat? mainchat = null;
-        public bool isgroup = false;
-        public Group group = new();
-        public ConcurrentDictionary<long,Dictionary<string,object?>> updates = new();
-        public List<Dictionary<string,object?>> updatesToPush = new();
-        private Dictionary<string, chatMessageFormatted> formatcache = new();
-        public List<string> typingUsers = new();
-        public long newid = 0;
-        public bool wasUpdated = false;
-        public List<Federation> connectedFederations = new();
-        public Chat? pinnedMessages;
-
-        int getIndexOfKeyInDictionary(string key)
-        {
-            for(int i = 0; i < Count; ++i)
-            {
-                if (Keys.ElementAt(i) == key) return i;
-            }
-            return -1;
-        }
-
-        public void setTyping(string uid) {
-            if (!typingUsers.Contains(uid)) {
-                typingUsers.Add(uid);
-            }
-        }
-
-        public void remTyping(string uid) {
-            typingUsers.Remove(uid);
-        }
-
-        void addupdate(Dictionary<string, object?> update)
-        {
-            wasUpdated = true;
-            if ((update["event"] ?? "").ToString() == "DELETED")
-            {
-                string msgid = (update["id"] ?? "").ToString() ?? "";
-                int i = 0;
-                while (i < updates.Count)
-                {
-                    var oupdate = updates.ElementAt(i);
-                    if (((oupdate.Value["id"] ?? "").ToString() ?? "") == msgid)
-                    {
-                        updates.Remove(oupdate.Key, out _);
-                    }
-                    else
-                    {
-                        i += 1;
-                    }
-                }
-            }
-            if ((update["event"] ?? "").ToString() == "REACT")
-            {
-                string msgid = (update["id"] ?? "").ToString() ?? "";
-                int i = 0;
-                while (i < updates.Count)
-                {
-                    var oupdate = updates.ElementAt(i);
-                    if ((oupdate.Value["id"] ?? "").ToString() == msgid && (oupdate.Value["event"] ?? "").ToString() == "REACT")
-                    {
-                        updates.Remove(oupdate.Key, out _);
-                    }
-                    else
-                    {
-                        i += 1;
-                    }
-                }
-            }
-            if ((update["event"] ?? "").ToString() == "UNPINNED")
-            {
-                string msgid = (update["id"] ?? "").ToString() ?? "";
-                int i = 0;
-                while (i < updates.Count)
-                {
-                    var oupdate = updates.ElementAt(i);
-                    if ((oupdate.Value["id"] ?? "").ToString() == msgid && (oupdate.Value["event"] ?? "").ToString() == "PINNED")
-                    {
-                        updates.Remove(oupdate.Key, out _);
-                    }
-                    else
-                    {
-                        i += 1;
-                    }
-                }
-            }
-            if ((update["event"] ?? "").ToString() == "PINNED")
-            {
-                string msgid = (update["id"] ?? "").ToString() ?? "";
-                int i = 0;
-                while (i < updates.Count)
-                {
-                    var oupdate = updates.ElementAt(i);
-                    if ((oupdate.Value["id"] ?? "").ToString() == msgid && (oupdate.Value["event"] ?? "").ToString() == "UNPINNED")
-                    {
-                        updates.Remove(oupdate.Key, out _);
-                    }
-                    else
-                    {
-                        i += 1;
-                    }
-                }
-            }
-            newid += 1;
-            updates[newid] = update;
-            pushUpdate(update);
-        }
-
-        bool doPushRequest = true;
-        void pushUpdate(Dictionary<string, object?> update)
-        {
-            if (connectedFederations.Count == 0) return;
-            updatesToPush.Add(formatUpdate(update));
-            if (doPushRequest)
-            {
-                Task.Delay(500).ContinueWith((task) =>
-                { // Delay to send it as groupped
-                    foreach (Federation fed in connectedFederations)
-                    {
-                        fed.pushChatUpdates(chatid, updatesToPush);
-                    }
-                    updatesToPush.Clear();
-                    doPushRequest = true;
-                });
-                doPushRequest = false;
-            }
-        }
-
-        public Dictionary<long, Dictionary<string, object?>>? getUpdates(long since)
-        {
-            Dictionary<long, Dictionary<string, object?>> updatesSince = new();
-            if (updates.Count == 0)
-            {
-                return updatesSince;
-            }
-            else
-            {
-                if (since > updates.Keys.Max())
-                {
-                    return updatesSince;
-                }
-                else if (since == 0)
-                {
-                    since = updates.Keys.Min();
-                }
-                else if (since == -1)
-                {
-                    since = updates.Keys.Max() - 1;
-                }
-            }
-            
-            //var keysToRemove = new List<long>();
-            for (int i = 0; i < updates.Count; ++i)
-            {
-                long id = updates.Keys.ElementAt(i);
-                if (id > since)
-                {
-                    updatesSince[id] = formatUpdate(updates[id]);
-                    /*if (!updates[id].ContainsKey("read") || !(updates[id]["read"] is List<string>)) {
-                        updates[id]["read"] = new List<string>();
-                    }
-                    var reads = (List<string>?)updates[id]["read"];
-                    if (reads != null && !reads.Contains(uid)) {
-                        reads.Add(uid);
-                        if (reads.Count == group.members.Count) {
-                            keysToRemove.Add(id);
-                        }
-                    }*/
-                }
-                ;
-            }
-            /*foreach (long key in keysToRemove) {
-                updates.Remove(key);
-            }*/
-            return updatesSince;
-        }
-
-        Dictionary<string, object?> formatUpdate(Dictionary<string, object?> upd)
-        {
-            Dictionary<string, object?> update;
-            string eventtype = (upd["event"] ?? "").ToString() ?? "";
-            string msgid = (upd["id"] ?? "").ToString() ?? "";
-            if (eventtype == "NEWMESSAGE" || eventtype == "PINNED")
-            {
-                chatMessageFormatted? f = formatMessage(msgid);
-                if (f != null)
-                {
-                    update = f.toDictionary();
-                }else {
-                    return upd;
-                }
-            }
-            else
-            {
-                update = new();
-                if (eventtype == "REACTIONS" && ContainsKey(msgid))
-                {
-                    update["rect"] = this[msgid].reactions;
-                }
-            }
-            update["event"] = eventtype;
-            update["id"] = msgid;
-            return update;
-        }
-
-        private chatMessageFormatted? formatMessage(string key)
-        {
-            if (formatcache.ContainsKey(key)) return formatcache[key];
-            if (ContainsKey(key))
-            {
-                chatMessageFormatted formatted = new chatMessageFormatted(this[key]);
-                formatcache[key] = formatted;
-                if (formatted.replymsgid != null)
-                {
-                    //chatMessageFormatted? innerformatted = formatMessage(formatted.replymsgid);
-                    var chat = mainchat ?? this;// Get the message from the full chat, as page might not contain it. if chat is null, use this chat (could be a page only).
-                    //Console.WriteLine(mainchat == null ? "null!" : "exists");
-                    if (chat.ContainsKey(formatted.replymsgid))
-                    { // Check if message exists
-                        var message = chat[formatted.replymsgid];
-                        formatted.replymsgcontent = message.content;
-                        formatted.replymsgsender = message.sender;
-                    }
-                }
-                return formatted;
-            }
-            return null;
-        }
-
-        public OrderedDictionary<string,chatMessageFormatted> format() {
-            OrderedDictionary<string,chatMessageFormatted> fd = new();
-            foreach (var kv in this) {
-                chatMessageFormatted? f = formatMessage(kv.Key);
-                if (f != null) fd[kv.Key] = f;
-            }
-            return fd;
-        }
-        /*public Chat getPage(int page = 0) {
-            if (Count - 1 > pagesize) {
-                Chat rtrn = new() {chatid = chatid, mainchat = this};
-                int index = (Count - 1) - (page * pagesize);
-                //Console.WriteLine(Count);
-                while (index > Count - ((page + 1) * pagesize) && index >= 0) {
-                    //Console.WriteLine(index);
-                    rtrn.Insert(0,Keys.ElementAt(index),Values.ElementAt(index));
-                    index -= 1;
-                }
-                return rtrn;
-            }
-            return this;
-        }*/
-        public Chat getMessages(string prefix = "") {
-            //Console.WriteLine(prefix);
-            Chat chat = new() {chatid = chatid, mainchat = this};
-            if (prefix.Contains("-")) {
-                string[] split = prefix.Split("-");
-                string? msgid1 = getMessageIDFromPrefix(split[0]);
-                string? msgid2 = getMessageIDFromPrefix(split[1]);
-                //Console.WriteLine("from: " + msgid1 + " To: " + msgid2);
-                //Check if they exist
-                if (msgid1 != null && msgid2 != null) {
-                    int i1 = getIndexOfKeyInDictionary(msgid1);
-                    int i2 = getIndexOfKeyInDictionary(msgid2);
-                    int fromi = 0;
-                    int toi = 0;
-                    if (i1 > i2) {
-                        fromi = i2;
-                        toi = i1;
-                    }else {
-                        fromi = i1;
-                        toi = i2;
-                    }
-                    //Console.WriteLine("from: " + fromi + " To: " + toi);
-                    int index = fromi;
-                    //Console.WriteLine(Count);
-                    while (index <= toi) {
-                        //Console.WriteLine(index);
-                        chat.Add(Keys.ElementAt(index), Values.ElementAt(index));
-                        index += 1;
-                    }
-                }else {
-                    //Console.WriteLine("Failled null match");
-                }
-            }else {
-                string? id = getMessageIDFromPrefix(prefix);
-                if (id != null) chat.Add(id, this[id]);
-            }
-            return chat;
-        }
-
-        public string? getMessageIDFromPrefix(string prefix) {
-            if (Count == 0)  {
-                return null;
-            }
-            if (prefix.StartsWith("#^")) { //Don't catch errors, entire thing should fail already.
-                int id = int.Parse(prefix.Replace("#^",""));
-                if (id >= Count)
-                {
-                    id = Count - 1;
-                }
-                if (id > -1) return Keys.ElementAt(id);
-            }else if (prefix.StartsWith("#")) {
-                int idx = int.Parse(prefix.Replace("#", ""));
-                if (idx >= Count) {
-                    idx = Count - 1;
-                }
-                int id = (Count - 1) - idx;
-                if (id < Count && id > -1) return Keys.ElementAt(id);
-            }else {
-                if (ContainsKey(prefix)) {
-                    return prefix;
-                }
-            }
-            return null;
-        }
-
-        public chatMessage? getLastMessage(bool previewMode = false) {
-            if (Count > 0)
-            {
-                var ret = Values.ElementAt(Count - 1);
-                if (previewMode)
-                {
-                    ret.content = ret.content.Split("\n")[0];
-                    const int cropsize = 50;
-                    if (ret.content.Length > cropsize && ret.sender != "0")
-                    {
-                        ret.content = ret.content.Substring(0, cropsize);
-                    }
-                }
-                return ret;
-            }
-            return null;
-        }
-
-        public async void sendMessage(chatMessage msg, bool notify = true, string? remotemessageid = null) {
-            newid++;
-            string id = newid.ToString();
-            if (remotemessageid != null)
-            {
-                id = remotemessageid;
-                if (ContainsKey(id)) return;
-            }
-            Add(id,msg);
-            Dictionary<string,object?> update = new();
-            update["event"] = "NEWMESSAGE";
-            update["id"] = id;
-            addupdate(update);
-            if (notify) {
-                var notification = new userNotification() {
-                    user = profileShort.fromProfile(await GetUserProfile(msg.sender)), //Probably would stay like this
-                    userid = msg.sender,
-                    content = msg.content,
-                    chatid = chatid
-                };
-                foreach (string member in group.members.Keys) {
-                    if (msg.sender != member)
-                    {
-                        userConfig? uc = await userConfig.Get(member);
-                        if (uc != null && !uc.mutedChats.Contains(chatid))
-                        {
-                            notifications.Get(member)[id] = notification;
-                        }
-                    }
-                }
-            }
-            
-        }
-
-        public void deleteMessage(string msgid) {
-            if (Remove(msgid))
-            {
-                Dictionary<string, object?> update = new();
-                update["event"] = "DELETED";
-                update["id"] = msgid;
-                addupdate(update);
-            }
-        }
-
-        public messageReactions reactMessage(string msgid, string uid, string reaction) {
-            if (ContainsKey(msgid)) {
-                chatMessage msg = this[msgid];
-                messageReactions rect = msg.reactions;
-                messageEmojiReactions r = rect.get(reaction,true);
-                if (r.ContainsKey(uid)) {
-                    r.Remove(uid, out _);
-                } else {
-                    messageReaction react = new() { sender = uid, reaction = reaction, time = datetostring(DateTime.Now) };
-                    r[uid] = react;
-                }
-                rect.update();
-                Dictionary<string,object?> update = new();
-                update["event"] = "REACTIONS";
-                update["id"] = msgid;
-                addupdate(update);
-                return rect;
-            }
-            return new();
-        }
-
-        public void putReactions(string msgid, messageReactions reactions)
-        {
-            if (ContainsKey(msgid))
-            {
-                reactions.update();
-                this[msgid].reactions = reactions;
-                /*Dictionary<string,object?> update = new(); //FIXME
-                update["event"] = "REACTIONS";
-                update["id"] = msgid;
-                addupdate(update);*/
-            }
-        }
-
-        public bool pinMessage(string msgid, bool? val = null)
-        {
-            if (ContainsKey(msgid))
-            {
-                var message = this[msgid];
-                if (val == null)
-                {
-                    val = !message.pinned;
-                }
-                if (message.pinned == val)
-                {
-                    return val.Value;
-                }
-                message.pinned = val.Value;
-                if (message.pinned == true)
-                {
-                    getPinned()[msgid] = message;
-                } else {
-                    getPinned().Remove(msgid);
-                }
-                chatMessageFormatted? f = formatMessage(msgid);
-                if (f != null)
-                {
-                    Dictionary<string, object?> update = new();
-                    update["event"] = message.pinned ? "PINNED" : "UNPINNED";
-                    update["id"] = msgid;
-                    addupdate(update);
-                }
-                if (formatcache.ContainsKey(msgid))
-                {
-                    formatcache[msgid].pinned = message.pinned;
-                }
-                return message.pinned;
-            }
-            return false;
-        }
-
-        public Chat getPinned() {
-            return pinnedMessages ?? new() {chatid = chatid, mainchat = this};
-        }
-
-        public enum chatAction {
-            Read,
-            Send,
-            React,
-            Delete,
-            Pin
-        }
-
-        public bool canDo(string user,chatAction action,string msgid = "") {
-            if (action == chatAction.Read && group.publicgroup) return true;
-
-            bool contains = false;
-            groupMember? u = null;
-            foreach (var member in group.members) { //find the user
-                if (member.Value.user == user) {
-                    contains = true;
-                    u = member.Value;
-                }
-            }
-            if (!contains || u == null) { // Doesn't exist? block
-                return false;
-            }
-            if (action != chatAction.Send && action != chatAction.Read) { // Any actions except read and send will require a existent message
-                if (!ContainsKey(msgid)) {
-                    return false;
-                }
-            }
-            if (action == chatAction.Delete) {
-                if (this[msgid].sender == user) { // User can delete their own messages.
-                    return true;
-                }
-            }
-            if (u.role != "" && group.roles.ContainsKey(u.role)) { //is this a real group user?
-                //Then it's a real group
-                groupRole role = group.roles[u.role];
-                if (action == chatAction.React) return role.AllowSendingReactions;
-                if (action == chatAction.Send) return role.AllowSending;
-                if (action == chatAction.Delete) return role.AllowMessageDeleting;
-                if (action == chatAction.Pin) return role.AllowPinningMessages;
-            }
-            return true;
-        }
-
-        public static async Task<Chat?> getChat(string chat) {
-            if (chatsCache.ContainsKey(chat)) {
-                return chatsCache[chat];
-            }
-            //Check validity
-            if (chat.Contains("-"))
-            { //both users should exist
-                string[] spl = chat.Split("-");
-                if (!File.Exists("data/info/" + spl[0] + "/profile"))
-                {
-                    return null;
-                }
-                if (!File.Exists("data/info/" + spl[1] + "/profile"))
-                {
-                    return null;
-                }
-            }
-            else
-            {
-                if (!File.Exists("data/info/" + chat + "/info"))
-                {
-                    return null;
-                }
-            }
-
-            //Load
-            Chat? c = null;
-            if (File.Exists("data/chat/" + chat + "/chat"))
-            {
-                c = JsonConvert.DeserializeObject<Chat>(await File.ReadAllTextAsync("data/chat/" + chat + "/chat"));
-                // If that is null, we should NOT load the chat at all
-            }else
-            {
-                if (!chat.Contains("@")) c = new Chat();
-            }
-            
-            if (chat.Contains("@"))
-            {
-                string[] split = chat.Split("@");
-                string id = split[0];
-                string server = split[1];
-                var connection = await Federation.connect(server);
-                if (connection != null)
-                {
-                    c = await connection.getChat(id);
-                }
-            }
-            
-            if (c != null)
-            {
-                if (File.Exists("data/chat/" + chat + "/updates"))
-                {
-                    try
-                    {
-                        var u = JsonConvert.DeserializeObject<ConcurrentDictionary<long, Dictionary<string, object?>>>(await File.ReadAllTextAsync("data/chat/" + chat + "/updates"));
-                        if (u != null) c.updates = u;
-                    }
-                    catch { } //Ignore...
-                }
-                c.chatid = chat;
-                c.isgroup = !chat.Contains("-");
-                c.newid = DateTime.Now.Ticks;
-                if (c.isgroup)
-                {
-                    // Load the real group
-                    Group? g = await Group.get(chat);
-                    if (g == null)
-                    {
-                        throw new Exception("404"); //Other part of the validity check
-                    }
-                    c.group = g;
-                }
-                else
-                {
-                    // Make a fake group
-                    string[] users = chat.Split("-");
-                    foreach (string user in users)
-                    {
-                        c.group.members[user] = new groupMember() { user = user };
-                    }
-                }
-
-                c.pinnedMessages = new() { chatid = chat, mainchat = c };
-                foreach (var kv in c)
-                {
-                    if (kv.Value.pinned)
-                    {
-                        c.pinnedMessages[kv.Key] = kv.Value;
-                    }
-                }
-                chatsCache[chat] = c;
-            }
-            return c;
-        }
-        
-        public void saveChat()
-        {
-            if (wasUpdated)
-            {
-                Directory.CreateDirectory("data/chat/" + chatid);
-                string c = JsonConvert.SerializeObject(this);
-                File.WriteAllTextAsync("data/chat/" + chatid + "/chat", c);
-                string u = JsonConvert.SerializeObject(updates);
-                File.WriteAllTextAsync("data/chat/" + chatid + "/updates", u);
-                wasUpdated = false;
-            }
-        }
-    }
-
-    class chatItem { //Chats list item
-        public string? chatid;
-        public string type = "";
-
-        // Optional because depends on it's type.
-        public string? user = null;
-        public string? group = null;
-
-        //for preview at chats list.
-        //public profileShort? info = null;
-        public chatMessage? lastmessage = null;
-    }
-
-    class fileUpload {
         public string sender = "";
         public string actualName = "";
         public int size = 0;
         public string contentType = "";
     }
 
-    class fileUploadResponse { // What should server reply for /upload
+    /// <summary>
+    /// What should server reply for /upload
+    /// </summary>
+    class FileUploadResponse
+    {
         public string url = ""; //success
         public string status;
-        public fileUploadResponse(string stat, string furl) { //for easier creation
+        public FileUploadResponse(string stat, string furl)
+        { //for easier creation
             status = stat;
             url = furl;
         }
     }
 
-    class serverResponse { //Mostly for errors and actions that doesn't have any return
+    /// <summary>
+    /// Server response type for errors and actions that doesn't have any return
+    /// </summary>
+    class ServerResponse {
         public string status; //done
         public string? description;
         public string? code;
 
-        public serverResponse(string stat, string? scode = null, string? descript = null) { //for easier creation
+        public ServerResponse(string stat, string? scode = null, string? descript = null) { //for easier creation
             status = stat;
             description = descript;
             code = scode;
         }
     }
 
-    class loginResponse { //for both signup and login calls.
+    /// <summary>
+    /// For both signup and login calls.
+    /// </summary>
+    class LoginResponse
+    {
         public string token;
         public string uid;
         //public userProfile userinfo;
 
-        public loginResponse(string utoken, string id) {
+        public LoginResponse(string utoken, string id)
+        {
             token = utoken;
             uid = id;
             //userinfo = profile;
         }
     }
     
-    class actionReturn
+    /// <summary>
+    /// Return for doAction function.
+    /// </summary>
+    class ActionReturn
     {
         public string res = "";
         public int statuscode = 200;
     }
 
-    class federationRequest
-    {
-        public string? serverurl = null;
-    }
-
-    class Federation
-    {
-        public string serverurl;
-        public string id;
-        static List<string> connectingFederations = new();
-        public Federation(string server, string fid)
-        {
-            serverurl = server;
-            id = fid;
-        }
-
-        public async void pushChatUpdates(string chatid, List<Dictionary<string, object?>> updates)
-        {
-            if (federationClient == null) federationClient = new();
-            StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisserverurl, id = id, updates = updates, chatid = chatid }));
-            try
-            {
-                var res = await federationClient.PostAsync(new Uri(new Uri(serverurl), "federationrecievechatupdates"), sc);
-                string resbody = await res.Content.ReadAsStringAsync();
-                Console.WriteLine("push " + resbody);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.ToString());
-            }
-        }
-        
-        public static async Task<Federation?> connect(string server) //FIXME
-        {
-            if (connectingFederations.Contains(server))
-            {
-                while (connectingFederations.Contains(server))
-                {
-                    await Task.Delay(500);
-                }
-            }
-
-            if (federations.ContainsKey(server))
-            {
-                return federations[server];
-            }
-
-            connectingFederations.Add(server);
-            if (federationClient == null) federationClient = new();
-            StringContent sc = new(JsonConvert.SerializeObject(new federationRequest() { serverurl = thisserverurl }));
-            try
-            {
-                var res = await federationClient.PostAsync(new Uri(new Uri(server), "federationrequest"), sc);
-                string resbody = await res.Content.ReadAsStringAsync();
-                Console.WriteLine(resbody);
-                var fed = JsonConvert.DeserializeObject<Federation>(resbody);
-                if (fed == null) return null;
-                Federation cf = new(server, fed.id);
-                federations[server] = cf;
-                connectingFederations.Remove(server);
-                return cf;
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.ToString());
-                connectingFederations.Remove(server);
-                return null;
-            }
-        }
-        public async Task<object?> getGroup(string gid)
-        {
-            if (federationClient == null) federationClient = new();
-            StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisserverurl, id = id, groupid = gid }));
-            try
-            {
-                var res = await federationClient.PostAsync(new Uri(new Uri(serverurl), "federationgetgroup"), sc);
-                string resbody = await res.Content.ReadAsStringAsync();
-                Console.WriteLine("getgroup " + resbody);
-                var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
-                if (ret == null) return null;
-                if (ret.ContainsKey("status"))
-                {
-                    if (ret["status"].ToString() == "exists")
-                    {
-                        Console.WriteLine("Group exists.");
-                        return true;
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    Group? group = JsonConvert.DeserializeObject<Group>(resbody);
-                    if (group == null) return null;
-                    fixgroup(group);
-                    return group;
-                }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.ToString());
-                return null;
-            }
-        }
-
-        public async Task<bool> joinGroup(string uid, string gid)
-        {
-            if (federationClient == null) federationClient = new();
-            StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisserverurl, id = id, groupid = gid, userid = uid }));
-            try
-            {
-                var res = await federationClient.PostAsync(new Uri(new Uri(serverurl), "federationjoingroup"), sc);
-                string resbody = await res.Content.ReadAsStringAsync();
-                Console.WriteLine("joingroup " + resbody);
-                var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
-                if (ret == null) return false;
-                if (ret.ContainsKey("status"))
-                {
-                    if (ret["status"].ToString() == "done")
-                    {
-                        return true;
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    return false;
-                }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.ToString());
-                return false;
-            }
-        }
-
-        public async Task<bool> leaveGroup(string uid, string gid)
-        {
-            if (federationClient == null) federationClient = new();
-            StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisserverurl, id = id, groupid = gid, userid = uid }));
-            try
-            {
-                var res = await federationClient.PostAsync(new Uri(new Uri(serverurl), "federationleavegroup"), sc);
-                string resbody = await res.Content.ReadAsStringAsync();
-                Console.WriteLine("leavegroup " + resbody);
-                var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
-                if (ret == null) return false;
-                if (ret.ContainsKey("status"))
-                {
-                    if (ret["status"].ToString() == "done")
-                    {
-                        return true;
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    return false;
-                }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.ToString());
-                return false;
-            }
-        }
-
-        public async Task<Chat?> getChat(string cid)
-        {
-            if (federationClient == null) federationClient = new();
-            StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisserverurl, id = id, chatid = cid }));
-            try
-            {
-                var res = await federationClient.PostAsync(new Uri(new Uri(serverurl), "federationgetchat"), sc);
-                string resbody = await res.Content.ReadAsStringAsync();
-                Console.WriteLine("chat " + resbody);
-                var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
-                if (ret == null) return null;
-                if (ret.ContainsKey("status"))
-                {
-                    return null;
-                }
-                else
-                {
-                    Chat? chat = JsonConvert.DeserializeObject<Chat>(resbody);
-                    if (chat == null) return null;
-                    chat.connectedFederations.Add(this);
-                    foreach (chatMessage msg in chat.Values)
-                    {
-                        fixmessage(msg);
-                    }
-                    return chat;
-                }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.ToString());
-                return null;
-            }
-        }
-        
-        public async Task<userProfile?> getUser(string uid)
-        {
-            if (federationClient == null) federationClient = new();
-            StringContent sc = new(JsonConvert.SerializeObject(new { uid = uid }));
-            try
-            {
-                var res = await federationClient.PostAsync(new Uri(new Uri(serverurl), "getuser"), sc);
-                string resbody = await res.Content.ReadAsStringAsync();
-                Console.WriteLine("user " + resbody);
-                var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
-                if (ret == null) return null;
-                if (ret.ContainsKey("status"))
-                {
-                    return null;
-                }
-                else
-                {
-                    userProfile? profile = JsonConvert.DeserializeObject<userProfile>(resbody);
-                    if (profile == null) return null;
-                    fixuser(profile);
-                    return profile;
-                }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.ToString());
-                return null;
-            }
-        }
-
-        public void fixmessage(chatMessage msg)
-        {
-
-            msg.sender = fixuserid(msg.sender);
-
-            if (msg.sender == "0")
-            {
-                if (msg.content.Contains("|"))
-                {
-                    string userid = msg.content.Split("|")[1];
-                    msg.content = msg.content.Replace(userid, fixuserid(userid));
-                }
-            }
-
-            if (msg.forwardedfrom != null)
-            {
-                msg.forwardedfrom = fixuserid(msg.forwardedfrom);
-            }
-
-
-            foreach (messageEmojiReactions r in msg.reactions.Values)
-            {
-                ConcurrentDictionary<string, messageReaction> reactions = new();
-                foreach (var reaction in r)
-                {
-                    reactions[fixuserid(reaction.Key)] = new()
-                    {
-                        sender = fixuserid(reaction.Value.sender),
-                        time = reaction.Value.time,
-                        reaction = reaction.Value.reaction
-                    };
-                }
-            }
-
-            if (msg.files != null)
-            {
-                List<string> files = new();
-                foreach (var file in msg.files)
-                {
-                    files.Add(file.Replace("%SERVER%", serverurl));
-                }
-                msg.files = files;
-            }
-        }
-
-        public string fixuserid(string userid)
-        {
-            string user;
-            string userserver;
-            if (userid.Contains("@"))
-            {
-                string[] usplit = userid.Split("@");
-                user = usplit[0];
-                userserver = usplit[1];
-            }
-            else
-            {
-                user = userid;
-                userserver = serverurl;
-            }
-            if (user != "0")
-            {
-                // remake(or reuse) the user string depending on the server.
-                if (userserver == serverurl)
-                {
-                    return user + "@" + userserver;
-                }
-                else if (userserver == thisserverurl)
-                {
-                    return user;
-                }
-            }
-            return userid;
-        }
-
-        public void fixuser(userProfile profile)
-        {
-            // fix picture
-            profile.picture = profile.picture.Replace("%SERVER%", serverurl);
-        }
-
-        public void fixgroup(Group group)
-        {
-            // fix picture
-            group.picture = group.picture.Replace("%SERVER%", serverurl);
-            // remake the members list.
-            ConcurrentDictionary<string, groupMember> members = new();
-            foreach (var member in group.members)
-            {
-                string user = fixuserid(member.Key);
-                members[user] = new groupMember()
-                {
-                    user = user,
-                    jointime = member.Value.jointime,
-                    role = member.Value.role
-                };
-            }
-            group.members = members;
-        }
-    }
-
-    static string hashpassword(string pass, string uid)
+    /// <summary>
+    /// Hashes a password
+    /// </summary>
+    /// <param name="pass">Password</param>
+    /// <param name="uid">User ID that will be used as AssociatedData.</param>
+    /// <returns></returns>
+    static string hashPassword(string pass, string uid)
     {
         try
         {
@@ -1645,61 +143,15 @@ internal class Program
         catch { return ""; }
     }
 
-    static userStatus? getuserstatus(string uid) {
-        if (userstatus.ContainsKey(uid)) {
-            return userstatus[uid];
-        }else {
-            if (File.Exists("data/info/" + uid + "/profile")) { // check
-                userStatus us = new userStatus(uid);
-                userstatus[uid] = us;
-                return us;
-            }
-        }
-        return null;
-    }
-
-    static async Task<userProfile?> GetUserProfile(string uid) {
-        if (userProfileCache.ContainsKey(uid)) {
-            return userProfileCache[uid];
-        }else {
-            if (uid.Contains("@"))
-            {
-                string[] split = uid.Split("@");
-                string id = split[0];
-                string server = split[1];
-                var connection = await Federation.connect(server);
-                if (connection != null)
-                {
-                    userProfile? up = await connection.getUser(id);
-                    if (up != null)
-                    {
-                        userProfileCache[uid] = up;
-                        return up;
-                    }
-                }
-            }
-            if (File.Exists("data/info/" + uid + "/profile"))
-            { // check
-                userProfile? up = JsonConvert.DeserializeObject<userProfile>(await File.ReadAllTextAsync("data/info/" + uid + "/profile"));
-                if (up != null)
-                {
-                    userProfileCache[uid] = up;
-                    return up;
-                }
-            }
-        }
-        return null;
-    }
-
-    static void SetUserProfile(string uid, userProfile up)
-    {
-        userProfileCache[uid] = up; //set
-        File.WriteAllTextAsync("data/info/" + uid + "/profile", JsonConvert.SerializeObject(up)); //save
-    }
-
-    static async Task<loginCred?> GetLoginCred(string token, bool preventbypass = true) {
+    /// <summary>
+    /// Gets login credentials from token or if preventBypass is false from email too.
+    /// </summary>
+    /// <param name="token">Token of the login or email (if preventBypass is true)</param>
+    /// <param name="preventBypass"></param>
+    /// <returns>loginCred if successful, null if "bypassed" or failled.</returns>
+    static async Task<loginCred?> GetLoginCred(string token, bool preventBypass = true) {
         //!preventbypass is when you wanna use the token to get other info
-        if (token.Contains("@") && preventbypass) { //bypassing
+        if (token.Contains("@") && preventBypass) { //bypassing
             return null;
         }
         if (loginCreds.ContainsKey(token)) {
@@ -1716,55 +168,29 @@ internal class Program
         return null;
     }
 
-    static async Task<string?> GetUIDFromToken(string token, bool preventbypass = true) {
-        loginCred? cred = await GetLoginCred(token, preventbypass);
-        if (cred == null) {
+    /// <summary>
+    /// Gets user ID from token.
+    /// </summary>
+    /// <param name="token"></param>
+    /// <param name="preventBypass"></param>
+    /// <returns></returns>
+    static async Task<string?> GetUIDFromToken(string token, bool preventBypass = true)
+    {
+        loginCred? cred = await GetLoginCred(token, preventBypass);
+        if (cred == null)
+        {
             return null;
         }
         return cred.userID;
     }
 
-    static async Task<List<chatItem>?> GetUserChats(string uid) { // Get chats list
-        if (userChatsCache.ContainsKey(uid)) { // Use cache
-            return userChatsCache[uid];
-        }else { //Load it from file
-            if (File.Exists("data/info/" + uid + "/chatslist")) {
-                List<chatItem>? uc = JsonConvert.DeserializeObject<List<chatItem>>(await File.ReadAllTextAsync("data/info/" + uid + "/chatslist"));
-                if (uc != null) {
-                    userChatsCache[uid] = uc;
-                    return uc;
-                }
-            }else {
-                if (Directory.Exists("data/info/" + uid)) {
-                    return new List<chatItem>();
-                }
-            }
-        }
-        return null;
-    }
-
-    static void addToChats(List<chatItem> list,chatItem item) { //Add to chats list
-        foreach (var i in list) { //Check if it doesn't exist
-            if (i.type == "group") {
-                if (i.group == item.group) return;
-            }else if (i.type == "user") {
-                if (i.user == item.user) return;
-            }
-        }
-        list.Add(item);
-    }
-
-    static void removeFromChats(List<chatItem> list, string chatid) { //Remove from chats list
-        var itm = list.Where(i => (i.chatid ?? i.group ?? "") == chatid).FirstOrDefault();
-        if (itm != null) list.Remove(itm);
-    }
-
-    static void saveUserChats(string uid, List<chatItem> list) { //Chats list
-        userChatsCache[uid] = list;
-        File.WriteAllText("data/info/" + uid + "/chatslist", JsonConvert.SerializeObject(list));
-    }
-
-    static async Task<actionReturn> doaction(string action, string body)
+    /// <summary>
+    /// Does a user action.
+    /// </summary>
+    /// <param name="action">Type of the request</param>
+    /// <param name="body">Body of the request.</param>
+    /// <returns>Return of the action.</returns>
+    static async Task<ActionReturn> doAction(string action, string body)
     {
         string res = "";
         int statuscode = 200;
@@ -1789,7 +215,7 @@ internal class Program
                             }
                             while (Directory.Exists("data/info/" + uid));
 
-                            a.Password = hashpassword(a.Password, uid);
+                            a.Password = hashPassword(a.Password, uid);
 
                             string token = "";
                             do
@@ -1802,14 +228,14 @@ internal class Program
                             //a.token = token;
 
                             //Console.WriteLine(a.Password);
-                            userProfile up = new() { name = a.EMail.Split("@")[0].Split(".")[0] };
+                            UserProfile up = new() { name = a.EMail.Split("@")[0].Split(".")[0] };
                             Directory.CreateDirectory("data/info/" + uid);
                             string astr = JsonConvert.SerializeObject(a);
                             //File.WriteAllText("data/auth/" + token, astr);
                             loginCreds[token] = a;
                             File.WriteAllText("data/auth/" + a.EMail, astr);
-                            SetUserProfile(uid, up);
-                            List<chatItem>? chats = await GetUserChats(uid); //get new user's chats list
+                            UserProfile.Create(uid, up);
+                            UserChatsList? chats = await UserChatsList.Get(uid); //get new user's chats list
                             if (chats != null)
                             {
                                 chatItem savedmessages = new()
@@ -1818,39 +244,39 @@ internal class Program
                                     type = "user",
                                     chatid = uid + "-" + uid
                                 };
-                                addToChats(chats, savedmessages);
-                                saveUserChats(uid, chats); //save it
+                                chats.AddChat(savedmessages);
+                                chats.Save(); //save it
                             }
                             else
                             {
                                 Console.WriteLine("Signup chatslist was null!!!"); //log if weirdo
                             }
                             //Done
-                            res = JsonConvert.SerializeObject(new loginResponse(token, uid));
+                            res = JsonConvert.SerializeObject(new LoginResponse(token, uid));
                         }
                         else
                         {
                             statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "WPFORMAT", "Password format wrong."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "WPFORMAT", "Password format wrong."));
                         }
                     }
                     else
                     {
                         statuscode = 411;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "WEFORMAT", "Invalid E-Mail."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "WEFORMAT", "Invalid E-Mail."));
                     }
                 }
                 else
                 {
                     statuscode = 401;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "USEREXISTS", "User already exists."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "USEREXISTS", "User already exists."));
                 }
 
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "login")
@@ -1865,7 +291,7 @@ internal class Program
                     if (lc != null)
                     {
                         string uid = lc.userID;
-                        a.Password = hashpassword(a.Password, uid);
+                        a.Password = hashPassword(a.Password, uid);
                         if (lc.Password == a.Password && lc.EMail == a.EMail)
                         {
                             //Console.WriteLine("Logging in...");
@@ -1879,31 +305,31 @@ internal class Program
                             //Console.WriteLine("Generated token");
                             loginCreds[token] = lc;
                             //Console.WriteLine("Respond");
-                            res = JsonConvert.SerializeObject(new loginResponse(token, uid));
+                            res = JsonConvert.SerializeObject(new LoginResponse(token, uid));
                         }
                         else
                         {
                             statuscode = 403;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "WRONGLOGIN", "Incorrect login"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "WRONGLOGIN", "Incorrect login"));
                         }
                     }
                     else
                     {
                         statuscode = 411;
-                        res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
 
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "changepassword")
@@ -1916,7 +342,7 @@ internal class Program
                     loginCred? lc = await GetLoginCred(a["token"]);
                     if (lc != null)
                     {
-                        if (lc.Password == hashpassword(a["oldpassword"], lc.userID))
+                        if (lc.Password == hashPassword(a["oldpassword"], lc.userID))
                         {
                             /*string token = "";
                                 *                   do
@@ -1926,7 +352,7 @@ internal class Program
                         while (loginCreds.ContainsKey(token));*/
                             //File.Delete("data/auth/" + lc.token);
                             //lc.token = token;
-                            lc.Password = hashpassword(a["password"].Trim(), lc.userID);
+                            lc.Password = hashPassword(a["password"].Trim(), lc.userID);
                             string astr = JsonConvert.SerializeObject(lc);
                             //File.WriteAllText("data/auth/" + token, astr);
                             File.WriteAllText("data/auth/" + lc.EMail, astr);
@@ -1943,19 +369,19 @@ internal class Program
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 411;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "WPFORMAT", "Password format wrong."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "WPFORMAT", "Password format wrong."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "logout")
@@ -1964,12 +390,12 @@ internal class Program
             if (a != null && a.ContainsKey("token"))
             {
                 loginCreds.Remove(a["token"], out _);
-                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                res = JsonConvert.SerializeObject(new ServerResponse("done"));
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getuser")
@@ -1983,7 +409,7 @@ internal class Program
                 }
                 else
                 {
-                    userProfile? up = await GetUserProfile(a["uid"]);
+                    UserProfile? up = await UserProfile.Get(a["uid"]);
                     if (up != null)
                     {
                         res = JsonConvert.SerializeObject(up);
@@ -1991,14 +417,14 @@ internal class Program
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                     }
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getonline")
@@ -2006,7 +432,7 @@ internal class Program
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("uid"))
             {
-                userProfile? up = await GetUserProfile(a["uid"]);
+                UserProfile? up = await UserProfile.Get(a["uid"]);
                 if (up != null)
                 {
                     res = up.getOnline();
@@ -2014,13 +440,13 @@ internal class Program
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "setonline")
@@ -2031,7 +457,7 @@ internal class Program
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    userProfile? user = await GetUserProfile(uid);
+                    UserProfile? user = await UserProfile.Get(uid);
                     if (user != null)
                     {
                         user.setOnline();
@@ -2039,19 +465,19 @@ internal class Program
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "updateuser")
@@ -2062,12 +488,12 @@ internal class Program
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    userProfile? user = await GetUserProfile(uid);
-                    if (user != null)
+                    UserProfile? profile = await UserProfile.Get(uid);
+                    if (profile != null)
                     {
                         if (a.ContainsKey("name") && a["name"].Trim() != "")
                         {
-                            user.name = a["name"].Trim().Replace("\n", "");
+                            profile.name = a["name"].Trim().Replace("\n", "");
                         }
                         if (!a.ContainsKey("picture"))
                         {
@@ -2077,27 +503,27 @@ internal class Program
                         {
                             a["description"] = "";
                         }
-                        user.picture = a["picture"];
-                        user.description = a["description"].Trim();
-                        SetUserProfile(uid, user);
-                        res = JsonConvert.SerializeObject(new serverResponse("done"));
+                        profile.picture = a["picture"];
+                        profile.description = a["description"].Trim();
+                        profile.save();
+                        res = JsonConvert.SerializeObject(new ServerResponse("done"));
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getchatslist")
@@ -2108,13 +534,13 @@ internal class Program
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    List<chatItem>? chats = await GetUserChats(uid);
+                    List<chatItem>? chats = await UserChatsList.Get(uid);
                     if (chats != null)
                     {
                         foreach (chatItem item in chats)
                         { //Format chats for clients
                             /*if (item.type == "user") { //Info
-                                *                           var p = GetUserProfile(item.user ?? "");
+                                *                           var p = userProfile.Get(item.user ?? "");
                                 *                           item.info = profileShort.fromProfile(p);
                         }else if (item.type == "group") {
                             var p = Group.get(item.group ?? "");
@@ -2140,19 +566,19 @@ item.info = profileShort.fromGroup(p);
                     else
                     {
                         statuscode = 500;
-                        res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getnotifications")
@@ -2164,7 +590,7 @@ item.info = profileShort.fromGroup(p);
                 if (uid != null)
                 {
                     //Console.WriteLine(JsonConvert.SerializeObject(notifications));
-                    var usernotifies = notifications.Get(uid);
+                    var usernotifies = Notifications.Get(uid);
                     res = JsonConvert.SerializeObject(usernotifies);
                     List<string> keys = new();
                     foreach (string key in usernotifies.Keys)
@@ -2184,13 +610,13 @@ item.info = profileShort.fromGroup(p);
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getmutedchats")
@@ -2209,19 +635,19 @@ item.info = profileShort.fromGroup(p);
                     else
                     {
                         statuscode = 500;
-                        res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "mutechat")
@@ -2251,24 +677,24 @@ item.info = profileShort.fromGroup(p);
                             }
                             userconfig.Save();
                         }
-                        res = JsonConvert.SerializeObject(new serverResponse("done"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("done"));
                     }
                     else
                     {
                         statuscode = 500;
-                        res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "adduserchat")
@@ -2280,8 +706,8 @@ item.info = profileShort.fromGroup(p);
                 string? uidb = await GetUIDFromToken(a["email"], false);
                 if (uidu != null && uidb != null)
                 {
-                    List<chatItem>? chatsu = await GetUserChats(uidu);
-                    List<chatItem>? chatsb = await GetUserChats(uidb);
+                    UserChatsList? chatsb = await UserChatsList.Get(uidb);
+                    UserChatsList? chatsu = await UserChatsList.Get(uidu);
                     if (chatsu != null && chatsb != null)
                     {
                         string chatid = uidu + "-" + uidb;
@@ -2297,28 +723,28 @@ item.info = profileShort.fromGroup(p);
                             type = "user",
                             chatid = chatid
                         };
-                        addToChats(chatsu, u);
-                        addToChats(chatsb, b);
-                        saveUserChats(uidu, chatsu);
-                        saveUserChats(uidb, chatsb);
-                        res = JsonConvert.SerializeObject(new serverResponse("done"));
+                        chatsu.AddChat(u);
+                        chatsb.AddChat(b);
+                        chatsu.Save();
+                        chatsb.Save();
+                        res = JsonConvert.SerializeObject(new ServerResponse("done"));
                     }
                     else
                     {
                         statuscode = 500;
-                        res = JsonConvert.SerializeObject(new serverResponse("error"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getchatpage")
@@ -2341,25 +767,25 @@ item.info = profileShort.fromGroup(p);
                         else
                         {
                             statuscode = 401;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getmessages")
@@ -2380,25 +806,25 @@ item.info = profileShort.fromGroup(p);
                         else
                         {
                             statuscode = 401;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getpinnedmessages")
@@ -2419,25 +845,25 @@ item.info = profileShort.fromGroup(p);
                         else
                         {
                             statuscode = 401;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "sendmessage")
@@ -2456,50 +882,50 @@ item.info = profileShort.fromGroup(p);
                         {
                             if (chat.canDo(uid, Chat.chatAction.Send))
                             {
-                                chatMessage msg = new()
+                                ChatMessage msg = new()
                                 {
                                     sender = uid,
                                     content = (a["content"].ToString() ?? "").Trim(),
                                     replymsgid = a.ContainsKey("replymsg") ? a["replymsg"].ToString() : null,
                                     files = files,
-                                    time = datetostring(DateTime.Now)
+                                    time = dateToString(DateTime.Now)
                                 };
                                 chat.sendMessage(msg);
-                                var userstatus = getuserstatus(uid);
+                                var userstatus = UserStatus.Get(uid);
                                 if (userstatus != null)
                                 {
                                     userstatus.setTyping(null);
                                 }
-                                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             }
                             else
                             {
                                 statuscode = 401;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
                             }
                         }
                         else
                         {
                             statuscode = 404;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 411;
-                    res = JsonConvert.SerializeObject(new serverResponse("error"));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error"));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "deletemessage")
@@ -2526,30 +952,30 @@ item.info = profileShort.fromGroup(p);
                                     //}
                                 }
                             }
-                            res = JsonConvert.SerializeObject(new serverResponse("done"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
                         }
                         else
                         {
                             statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "pinmessage")
@@ -2574,40 +1000,40 @@ item.info = profileShort.fromGroup(p);
                                     bool pinned = chat.pinMessage(msgid);
                                     if (chat.canDo(uid, Chat.chatAction.Send))
                                     {
-                                        chatMessage message = new()
+                                        ChatMessage message = new()
                                         {
                                             sender = "0",
                                             content = (pinned ? "" : "UN") + "PINNEDMESSAGE|" + uid + "|" + msgid,
-                                            time = datetostring(DateTime.Now)
+                                            time = dateToString(DateTime.Now)
                                         };
                                         chat.sendMessage(message);
                                     }
                                 }
                             }
-                            res = JsonConvert.SerializeObject(new serverResponse("done"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
                         }
                         else
                         {
                             statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "sendreaction")
@@ -2635,25 +1061,25 @@ item.info = profileShort.fromGroup(p);
                         else
                         {
                             statuscode = 401;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "savemessage")
@@ -2680,48 +1106,48 @@ item.info = profileShort.fromGroup(p);
                                         Chat? uchat = await Chat.getChat(uid + "-" + uid);
                                         if (uchat != null)
                                         {
-                                            chatMessage message = new()
+                                            ChatMessage message = new()
                                             {
                                                 sender = chat[msgid].sender,
                                                 content = chat[msgid].content,
                                                 files = chat[msgid].files,
-                                                time = datetostring(DateTime.Now)
+                                                time = dateToString(DateTime.Now)
                                             };
                                             uchat.sendMessage(message, false);
 
                                         }
                                     }
                                 }
-                                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             }
                             else
                             {
                                 statuscode = 401;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
                             }
                         }
                         else
                         {
                             statuscode = 401;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "forwardmessage")
@@ -2755,13 +1181,13 @@ item.info = profileShort.fromGroup(p);
                                                 {
                                                     if (uchat.canDo(uid, Chat.chatAction.Send))
                                                     {
-                                                        chatMessage message = new()
+                                                        ChatMessage message = new()
                                                         {
                                                             forwardedfrom = chat[msgid].sender,
                                                             sender = uid,
                                                             content = chat[msgid].content,
                                                             files = chat[msgid].files,
-                                                            time = datetostring(DateTime.Now)
+                                                            time = dateToString(DateTime.Now)
                                                         };
                                                         uchat.sendMessage(message);
                                                     }
@@ -2771,30 +1197,30 @@ item.info = profileShort.fromGroup(p);
                                     }
                                 }
                             }
-                            res = JsonConvert.SerializeObject(new serverResponse("done"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
                         }
                         else
                         {
                             statuscode = 401;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getupdates")
@@ -2815,25 +1241,25 @@ item.info = profileShort.fromGroup(p);
                         else
                         {
                             statuscode = 401;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "settyping")
@@ -2849,40 +1275,40 @@ item.info = profileShort.fromGroup(p);
                     {
                         if (chat.canDo(uid, Chat.chatAction.Send))
                         { //Ofc, if the user has the permission to send at the chat
-                            var userstatus = getuserstatus(uid);
+                            var userstatus = UserStatus.Get(uid);
                             if (userstatus != null)
                             {
-                                userstatus.setTyping(chat.chatid);
-                                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                userstatus.setTyping(chat.chatID);
+                                res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             }
                             else
                             {
                                 statuscode = 500;
-                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error"));
                             }
                         }
                         else
                         {
                             statuscode = 401;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "gettyping")
@@ -2903,25 +1329,25 @@ item.info = profileShort.fromGroup(p);
                         else
                         {
                             statuscode = 401;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "creategroup")
@@ -2955,10 +1381,10 @@ item.info = profileShort.fromGroup(p);
                             picture = a["picture"],
                             info = a["info"].Trim(),
                             owner = uid,
-                            time = datetostring(DateTime.Now),
+                            time = dateToString(DateTime.Now),
                             roles = new()
                             { //Default roles
-                                ["Owner"] = new groupRole()
+                                ["Owner"] = new GroupRole()
                                 {
                                     AdminOrder = 0,
                                     AllowBanning = true,
@@ -2970,7 +1396,7 @@ item.info = profileShort.fromGroup(p);
                                     AllowSendingReactions = true,
                                     AllowPinningMessages = true
                                 },
-                                ["Admin"] = new groupRole()
+                                ["Admin"] = new GroupRole()
                                 {
                                     AdminOrder = 1,
                                     AllowBanning = true,
@@ -2982,7 +1408,7 @@ item.info = profileShort.fromGroup(p);
                                     AllowSendingReactions = true,
                                     AllowPinningMessages = true
                                 },
-                                ["Moderator"] = new groupRole()
+                                ["Moderator"] = new GroupRole()
                                 {
                                     AdminOrder = 2,
                                     AllowBanning = true,
@@ -2994,7 +1420,7 @@ item.info = profileShort.fromGroup(p);
                                     AllowSendingReactions = true,
                                     AllowPinningMessages = true
                                 },
-                                ["Normal"] = new groupRole()
+                                ["Normal"] = new GroupRole()
                                 {
                                     AdminOrder = 3,
                                     AllowBanning = false,
@@ -3006,7 +1432,7 @@ item.info = profileShort.fromGroup(p);
                                     AllowSendingReactions = true,
                                     AllowPinningMessages = false
                                 },
-                                ["Readonly"] = new groupRole()
+                                ["Readonly"] = new GroupRole()
                                 {
                                     AdminOrder = 4,
                                     AllowBanning = false,
@@ -3021,8 +1447,8 @@ item.info = profileShort.fromGroup(p);
                             }
                         };
                         await g.addUser(uid, "Owner");
-                        g.save();
-                        groupsCache[id] = g;
+                        g.Save();
+                        Group.groupsCache[id] = g;
                         Dictionary<string, string> response = new()
                         {
                             ["groupid"] = id
@@ -3032,19 +1458,19 @@ item.info = profileShort.fromGroup(p);
                     else
                     {
                         statuscode = 411;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOINFO", "No group info"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOINFO", "No group info"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getgroup")
@@ -3053,12 +1479,12 @@ item.info = profileShort.fromGroup(p);
             if (a != null && a.ContainsKey("groupid"))
             {
                 string uid = await GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
-                Group? gp = await Group.get(a["groupid"]);
+                Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
                     if (gp.canDo(uid, Group.groupAction.Read))
                     {
-                        res = JsonConvert.SerializeObject(new groupInfo()
+                        res = JsonConvert.SerializeObject(new GroupInfo()
                         {
                             name = gp.name,
                             info = gp.info,
@@ -3069,19 +1495,19 @@ item.info = profileShort.fromGroup(p);
                     else
                     {
                         statuscode = 403;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getinfo")
@@ -3096,19 +1522,19 @@ item.info = profileShort.fromGroup(p);
                 }
                 else
                 {
-                    userProfile? up = await GetUserProfile(a["id"]);
+                    UserProfile? up = await UserProfile.Get(a["id"]);
                     if (up != null)
                     {
                         res = JsonConvert.SerializeObject(up);
                     }
                     else
                     {
-                        Group? gp = await Group.get(a["id"]);
+                        Group? gp = await Group.Get(a["id"]);
                         if (gp != null)
                         {
                             if (gp.canDo(uid, Group.groupAction.Read))
                             {
-                                res = JsonConvert.SerializeObject(new groupInfo()
+                                res = JsonConvert.SerializeObject(new GroupInfo()
                                 {
                                     name = gp.name,
                                     info = gp.info,
@@ -3119,13 +1545,13 @@ item.info = profileShort.fromGroup(p);
                             else
                             {
                                 statuscode = 403;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                             }
                         }
                         else
                         {
                             statuscode = 404;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                         }
                     }
                 }
@@ -3133,7 +1559,7 @@ item.info = profileShort.fromGroup(p);
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getgroupusers" || action == "getgroupmembers")
@@ -3142,7 +1568,7 @@ item.info = profileShort.fromGroup(p);
             if (a != null && a.ContainsKey("groupid"))
             {
                 string uid = await GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
-                Group? gp = await Group.get(a["groupid"]);
+                Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
                     if (gp.canDo(uid, Group.groupAction.Read))
@@ -3152,19 +1578,19 @@ item.info = profileShort.fromGroup(p);
                     else
                     {
                         statuscode = 403;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getbannedgroupmembers")
@@ -3173,7 +1599,7 @@ item.info = profileShort.fromGroup(p);
             if (a != null && a.ContainsKey("groupid"))
             {
                 string uid = await GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
-                Group? gp = await Group.get(a["groupid"]);
+                Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
                     if (gp.canDo(uid, Group.groupAction.Read))
@@ -3183,19 +1609,19 @@ item.info = profileShort.fromGroup(p);
                     else
                     {
                         statuscode = 403;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getgroupuserscount" || action == "getgroupmemberscount")
@@ -3203,7 +1629,7 @@ item.info = profileShort.fromGroup(p);
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("groupid"))
             {
-                Group? gp = await Group.get(a["groupid"]);
+                Group? gp = await Group.Get(a["groupid"]);
                 string uid = await GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                 if (gp != null)
                 {
@@ -3214,19 +1640,19 @@ item.info = profileShort.fromGroup(p);
                     else
                     {
                         statuscode = 403;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getgrouproles")
@@ -3235,7 +1661,7 @@ item.info = profileShort.fromGroup(p);
             if (a != null && a.ContainsKey("groupid"))
             {
                 string uid = await GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
-                Group? gp = await Group.get(a["groupid"]);
+                Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
                     if (gp.canDo(uid, Group.groupAction.Read))
@@ -3245,19 +1671,19 @@ item.info = profileShort.fromGroup(p);
                     else
                     {
                         statuscode = 403;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "getgrouprole")
@@ -3268,7 +1694,7 @@ item.info = profileShort.fromGroup(p);
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Group? gp = await Group.get(a["groupid"]);
+                    Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
                         var role = gp.getUserRole(uid);
@@ -3280,7 +1706,7 @@ item.info = profileShort.fromGroup(p);
                         {
                             if (gp.publicgroup)
                             {
-                                res = JsonConvert.SerializeObject(new groupRole()
+                                res = JsonConvert.SerializeObject(new GroupRole()
                                 {
                                     AdminOrder = -1,
                                     AllowBanning = false,
@@ -3296,26 +1722,26 @@ item.info = profileShort.fromGroup(p);
                             else
                             {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "joingroup")
@@ -3326,7 +1752,7 @@ item.info = profileShort.fromGroup(p);
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Group? gp = await Group.get(a["groupid"]);
+                    Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
                         if (await gp.addUser(uid))
@@ -3336,30 +1762,30 @@ item.info = profileShort.fromGroup(p);
                                 ["groupid"] = gp.groupID
                             };
                             res = JsonConvert.SerializeObject(response);
-                            gp.save();
+                            gp.Save();
                         }
                         else
                         {
                             statuscode = 500;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "leavegroup")
@@ -3370,37 +1796,37 @@ item.info = profileShort.fromGroup(p);
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Group? gp = await Group.get(a["groupid"]);
+                    Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
                         Chat? chat = await Chat.getChat(gp.groupID);
                         if (await gp.removeUser(uid))
                         {
-                            gp.save();
-                            res = JsonConvert.SerializeObject(new serverResponse("done"));
+                            gp.Save();
+                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
                         }
                         else
                         {
                             statuscode = 500;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "kickuser")
@@ -3411,44 +1837,44 @@ item.info = profileShort.fromGroup(p);
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Group? gp = await Group.get(a["groupid"]);
+                    Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
                         if (gp.canDo(uid, Group.groupAction.Kick, a["uid"] ?? ""))
                         {
                             if (await gp.removeUser(a["uid"] ?? ""))
                             {
-                                gp.save();
-                                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                gp.Save();
+                                res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             }
                             else
                             {
                                 statuscode = 500;
-                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error"));
                             }
                         }
                         else
                         {
                             statuscode = 403;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "banuser")
@@ -3459,44 +1885,44 @@ item.info = profileShort.fromGroup(p);
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Group? gp = await Group.get(a["groupid"]);
+                    Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
                         if (gp.canDo(uid, Group.groupAction.Ban, a["uid"] ?? ""))
                         {
                             if (await gp.banUser(a["uid"] ?? ""))
                             {
-                                gp.save();
-                                res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                gp.Save();
+                                res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             }
                             else
                             {
                                 statuscode = 500;
-                                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error"));
                             }
                         }
                         else
                         {
                             statuscode = 403;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "unbanuser")
@@ -3507,36 +1933,36 @@ item.info = profileShort.fromGroup(p);
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Group? gp = await Group.get(a["groupid"]);
+                    Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
                         if (gp.canDo(uid, Group.groupAction.Ban, a["uid"] ?? ""))
                         {
                             gp.unbanUser(a["uid"] ?? "");
-                            gp.save();
+                            gp.Save();
                         }
                         else
                         {
                             statuscode = 403;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "editgroup")
@@ -3547,7 +1973,7 @@ item.info = profileShort.fromGroup(p);
                 string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                 if (uid != null)
                 {
-                    Group? gp = await Group.get(a["groupid"].ToString() ?? "");
+                    Group? gp = await Group.Get(a["groupid"].ToString() ?? "");
                     if (gp != null)
                     {
                         if (gp.canDo(uid, Group.groupAction.EditGroup))
@@ -3571,7 +1997,7 @@ item.info = profileShort.fromGroup(p);
                             if (a.ContainsKey("roles"))
                             {
                                 bool setroles = true;
-                                var roles = ((JObject)a["roles"]).ToObject<Dictionary<string, groupRole>>() ?? gp.roles;
+                                var roles = ((JObject)a["roles"]).ToObject<Dictionary<string, GroupRole>>() ?? gp.roles;
                                 foreach (var member in gp.members.Values)
                                 {
                                     if (!roles.ContainsKey(member.role))
@@ -3587,17 +2013,17 @@ item.info = profileShort.fromGroup(p);
                                 ["groupid"] = gp.groupID
                             };
                             res = JsonConvert.SerializeObject(response);
-                            gp.save();
+                            gp.Save();
                             Chat? chat = await Chat.getChat(gp.groupID);
                             if (chat != null)
                             {
                                 if (chat.canDo(uid, Chat.chatAction.Send))
                                 {
-                                    chatMessage message = new()
+                                    ChatMessage message = new()
                                     {
                                         sender = "0",
                                         content = "EDITGROUP|" + uid,
-                                        time = datetostring(DateTime.Now)
+                                        time = dateToString(DateTime.Now)
                                     };
                                     chat.sendMessage(message);
                                 }
@@ -3606,25 +2032,25 @@ item.info = profileShort.fromGroup(p);
                         else
                         {
                             statuscode = 403;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "edituser")
@@ -3635,7 +2061,7 @@ item.info = profileShort.fromGroup(p);
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Group? gp = await Group.get(a["groupid"]);
+                    Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
                         if (gp.canDo(uid, Group.groupAction.EditUser, a["userid"]))
@@ -3651,72 +2077,78 @@ item.info = profileShort.fromGroup(p);
                                         if (crole.AdminOrder >= curole.AdminOrder)
                                         { //Dont allow to promote higher from current role.
                                             gp.members[a["userid"]].role = a["role"];
-                                            res = JsonConvert.SerializeObject(new serverResponse("done"));
-                                            gp.save();
+                                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
+                                            gp.Save();
                                         }
                                         else
                                         {
                                             statuscode = 403;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed to set more than current role"));
+                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed to set more than current role"));
                                         }
                                     }
                                     else
                                     {
                                         statuscode = 500;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error"));
+                                        res = JsonConvert.SerializeObject(new ServerResponse("error"));
                                     }
                                 }
                                 else
                                 {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOROLE", "Role doesn't exist."));
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOROLE", "Role doesn't exist."));
                                 }
                             }
                             else
                             {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                             }
                         }
                         else
                         {
                             statuscode = 403;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "ADENIED", "Not allowed"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 404;
-                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
             {
                 statuscode = 411;
-                res = JsonConvert.SerializeObject(new serverResponse("error"));
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else
         { //Ping!!!!
             res = "Pong!";
         }
-        actionReturn ret = new() {res = res, statuscode = statuscode};
+        ActionReturn ret = new() { res = res, statuscode = statuscode };
         return ret;
     }
 
-
-    static async void respond(HttpListenerContext context)
+    /// <summary>
+    /// Responds to a HttpListenerContext
+    /// </summary>
+    /// <param name="context">HttpListenerContext to respond to</param>
+    /// <exception cref="Exception">Throws if something that shouldn't happen, like failing to parse a json that should be parseable.</exception>
+    static async void respondToRequest(HttpListenerContext context)
     {
         if (context.Request.Url == null)
         { //just ignore
             return;
         }
+
+        bool manualRespond = false; //Like upload/getmedia call.
         string res = "";
         int statuscode = 200;
         string[] spl = context.Request.Url.ToString().Split("/");
@@ -3736,18 +2168,19 @@ item.info = profileShort.fromGroup(p);
             {
                 if (url == "multi")
                 {
-                    Dictionary<string, string>? actionRequests = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
-                    if (actionRequests != null)
+                    Dictionary<string, string>? actions = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
+                    if (actions != null)
                     {
-                        ConcurrentDictionary<string, actionReturn> responses = new();
-                        foreach (var request in actionRequests)
+                        ConcurrentDictionary<string, ActionReturn> responses = new();
+                        foreach (var request in actions)
                         {
-                            actionReturn actionreturn = await doaction(request.Key.Split("|")[0], request.Value);
+                            ActionReturn actionreturn = await doAction(request.Key.Split("|")[0], request.Value);
                             responses[request.Key] = actionreturn;
                         }
                         res = JsonConvert.SerializeObject(responses);
                     }
                 }
+                #region Federation
                 else if (url == "federationrequest")
                 {
                     federationRequest? request = JsonConvert.DeserializeObject<federationRequest>(body);
@@ -3755,41 +2188,41 @@ item.info = profileShort.fromGroup(p);
                     {
                         if (request.serverurl != null)
                         {
-                            if (request.serverurl != thisserverurl)
+                            if (request.serverurl != Federation.thisServerURL)
                             {
-                                if (federationClient == null) federationClient = new();
+                                if (Federation.federationClient == null) Federation.federationClient = new();
                                 try
                                 {
-                                    var httpTask = await federationClient.GetAsync(request.serverurl);
+                                    var httpTask = await Federation.federationClient.GetAsync(request.serverurl);
                                     // Valid, allow to federate
                                     string id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
                                     Federation fed = new(request.serverurl, id);
-                                    federations[request.serverurl] = fed;
+                                    Federation.federations[request.serverurl] = fed;
                                     statuscode = 200;
                                     res = JsonConvert.SerializeObject(fed); //return info
                                 }
                                 catch (Exception e)
                                 {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "ERROR", "Couldn't connect to remote. " + e.Message));
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "ERROR", "Couldn't connect to remote. " + e.Message));
                                 }
                             }
                             else
                             {
                                 statuscode = 418;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "ITSME", "Hello me!"));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "ITSME", "Hello me!"));
                             }
                         }
                         else
                         {
                             statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOSERVERURL", "Request doesn't contain a serverurl."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSERVERURL", "Request doesn't contain a serverurl."));
                         }
                     }
                     else
                     {
                         statuscode = 411;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "INVALID", "Couldn't parse request."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "INVALID", "Couldn't parse request."));
                     }
                 }
                 else if (url == "federationgetgroup")
@@ -3801,16 +2234,16 @@ item.info = profileShort.fromGroup(p);
                         {
                             if (request.ContainsKey("id"))
                             {
-                                if (federations.ContainsKey(request["serverurl"]))
+                                if (Federation.federations.ContainsKey(request["serverurl"]))
                                 {
-                                    Federation fed = federations[request["serverurl"]];
+                                    Federation fed = Federation.federations[request["serverurl"]];
                                     if (fed.id == request["id"])
                                     {
 
                                         if (request.ContainsKey("groupid"))
                                         {
                                             string id = request["groupid"].Split("@")[0];
-                                            Group? gp = await Group.get(id);
+                                            Group? gp = await Group.Get(id);
                                             if (gp != null)
                                             {
                                                 bool showfullinfo = false;
@@ -3825,7 +2258,7 @@ item.info = profileShort.fromGroup(p);
                                                         if (member.Contains("@"))
                                                         {
                                                             string server = member.Split("@")[1];
-                                                            if (server == fed.serverurl)
+                                                            if (server == fed.serverURL)
                                                             {
                                                                 showfullinfo = true;
                                                                 break;
@@ -3839,49 +2272,49 @@ item.info = profileShort.fromGroup(p);
                                                 }
                                                 else
                                                 {
-                                                    res = JsonConvert.SerializeObject(new serverResponse("exists")); //To make server know the group actually exists but it's private.
+                                                    res = JsonConvert.SerializeObject(new ServerResponse("exists")); //To make server know the group actually exists but it's private.
                                                 }
                                             }
                                             else
                                             {
                                                 statuscode = 404;
-                                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group not found."));
+                                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group not found."));
                                             }
                                         }
                                         else
                                         {
                                             statuscode = 411;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOGID", "Request doesn't contain a group ID."));
+                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGID", "Request doesn't contain a group ID."));
                                         }
                                     }
                                     else
                                     {
                                         statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "IDWRONG", "ID is wrong."));
+                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "IDWRONG", "ID is wrong."));
                                     }
                                 }
                                 else
                                 {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOFED", "Not a valid federation."));
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Not a valid federation."));
                                 }
                             }
                             else
                             {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOID", "Request doesn't contain a ID."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOID", "Request doesn't contain a ID."));
                             }
                         }
                         else
                         {
                             statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
                         }
                     }
                     else
                     {
                         statuscode = 411;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "INVALID", "Couldn't parse request."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "INVALID", "Couldn't parse request."));
                     }
                 }
                 else if (url == "federationjoingroup")
@@ -3893,9 +2326,9 @@ item.info = profileShort.fromGroup(p);
                         {
                             if (request.ContainsKey("id"))
                             {
-                                if (federations.ContainsKey(request["serverurl"]))
+                                if (Federation.federations.ContainsKey(request["serverurl"]))
                                 {
-                                    Federation fed = federations[request["serverurl"]];
+                                    Federation fed = Federation.federations[request["serverurl"]];
                                     if (fed.id == request["id"])
                                     {
                                         if (request.ContainsKey("groupid"))
@@ -3903,67 +2336,67 @@ item.info = profileShort.fromGroup(p);
                                             if (request.ContainsKey("userid"))
                                             {
                                                 string id = request["groupid"].Split("@")[0];
-                                                Group? gp = await Group.get(id);
+                                                Group? gp = await Group.Get(id);
                                                 if (gp != null)
                                                 {
-                                                    bool stat = await gp.addUser(request["userid"] + "@" + fed.serverurl);
+                                                    bool stat = await gp.addUser(request["userid"] + "@" + fed.serverURL);
                                                     if (stat)
                                                     {
-                                                        gp.save();
-                                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                                        gp.Save();
+                                                        res = JsonConvert.SerializeObject(new ServerResponse("done"));
                                                     }
                                                     else
                                                     {
                                                         statuscode = 403;
-                                                        res = JsonConvert.SerializeObject(new serverResponse("error", "FAIL", "Couldn't join group."));
+                                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "FAIL", "Couldn't join group."));
                                                     }
                                                 }
                                                 else
                                                 {
                                                     statuscode = 404;
-                                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group not found."));
+                                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group not found."));
                                                 }
                                             }
                                             else
                                             {
                                                 statuscode = 411;
-                                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUID", "Request doesn't contain a user ID."));
+                                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUID", "Request doesn't contain a user ID."));
                                             }
                                         }
                                         else
                                         {
                                             statuscode = 411;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOGID", "Request doesn't contain a group ID."));
+                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGID", "Request doesn't contain a group ID."));
                                         }
                                     }
                                     else
                                     {
                                         statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "IDWRONG", "ID is wrong."));
+                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "IDWRONG", "ID is wrong."));
                                     }
                                 }
                                 else
                                 {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOFED", "Not a valid federation."));
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Not a valid federation."));
                                 }
                             }
                             else
                             {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOID", "Request doesn't contain a ID."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOID", "Request doesn't contain a ID."));
                             }
                         }
                         else
                         {
                             statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
                         }
                     }
                     else
                     {
                         statuscode = 411;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "INVALID", "Couldn't parse request."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "INVALID", "Couldn't parse request."));
                     }
                 }
                 else if (url == "federationleavegroup")
@@ -3975,9 +2408,9 @@ item.info = profileShort.fromGroup(p);
                         {
                             if (request.ContainsKey("id"))
                             {
-                                if (federations.ContainsKey(request["serverurl"]))
+                                if (Federation.federations.ContainsKey(request["serverurl"]))
                                 {
-                                    Federation fed = federations[request["serverurl"]];
+                                    Federation fed = Federation.federations[request["serverurl"]];
                                     if (fed.id == request["id"])
                                     {
                                         if (request.ContainsKey("groupid"))
@@ -3985,67 +2418,67 @@ item.info = profileShort.fromGroup(p);
                                             if (request.ContainsKey("userid"))
                                             {
                                                 string id = request["groupid"].Split("@")[0];
-                                                Group? gp = await Group.get(id);
+                                                Group? gp = await Group.Get(id);
                                                 if (gp != null)
                                                 {
-                                                    bool stat = await gp.removeUser(request["userid"] + "@" + fed.serverurl);
+                                                    bool stat = await gp.removeUser(request["userid"] + "@" + fed.serverURL);
                                                     if (stat)
                                                     {
-                                                        gp.save();
-                                                        res = JsonConvert.SerializeObject(new serverResponse("done"));
+                                                        gp.Save();
+                                                        res = JsonConvert.SerializeObject(new ServerResponse("done"));
                                                     }
                                                     else
                                                     {
                                                         statuscode = 403;
-                                                        res = JsonConvert.SerializeObject(new serverResponse("error", "FAIL", "Couldn't leave group."));
+                                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "FAIL", "Couldn't leave group."));
                                                     }
                                                 }
                                                 else
                                                 {
                                                     statuscode = 404;
-                                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOGROUP", "Group not found."));
+                                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group not found."));
                                                 }
                                             }
                                             else
                                             {
                                                 statuscode = 411;
-                                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOUID", "Request doesn't contain a user ID."));
+                                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUID", "Request doesn't contain a user ID."));
                                             }
                                         }
                                         else
                                         {
                                             statuscode = 411;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOGID", "Request doesn't contain a group ID."));
+                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGID", "Request doesn't contain a group ID."));
                                         }
                                     }
                                     else
                                     {
                                         statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "IDWRONG", "ID is wrong."));
+                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "IDWRONG", "ID is wrong."));
                                     }
                                 }
                                 else
                                 {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOFED", "Not a valid federation."));
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Not a valid federation."));
                                 }
                             }
                             else
                             {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOID", "Request doesn't contain a ID."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOID", "Request doesn't contain a ID."));
                             }
                         }
                         else
                         {
                             statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
                         }
                     }
                     else
                     {
                         statuscode = 411;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "INVALID", "Couldn't parse request."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "INVALID", "Couldn't parse request."));
                     }
                 }
                 else if (url == "federationgetchat")
@@ -4057,9 +2490,9 @@ item.info = profileShort.fromGroup(p);
                         {
                             if (request.ContainsKey("id"))
                             {
-                                if (federations.ContainsKey(request["serverurl"]))
+                                if (Federation.federations.ContainsKey(request["serverurl"]))
                                 {
-                                    Federation fed = federations[request["serverurl"]];
+                                    Federation fed = Federation.federations[request["serverurl"]];
                                     if (fed.id == request["id"])
                                     {
                                         if (request.ContainsKey("chatid"))
@@ -4080,7 +2513,7 @@ item.info = profileShort.fromGroup(p);
                                                         if (member.Contains("@"))
                                                         {
                                                             string server = member.Split("@")[1];
-                                                            if (server == fed.serverurl)
+                                                            if (server == fed.serverURL)
                                                             {
                                                                 showfullinfo = true;
                                                                 break;
@@ -4096,49 +2529,49 @@ item.info = profileShort.fromGroup(p);
                                                 else
                                                 {
                                                     statuscode = 403;
-                                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOPERM", "Can't read chat."));
+                                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOPERM", "Can't read chat."));
                                                 }
                                             }
                                             else
                                             {
                                                 statuscode = 404;
-                                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOCHAT", "Chat not found."));
+                                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCHAT", "Chat not found."));
                                             }
                                         }
                                         else
                                         {
                                             statuscode = 411;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOCID", "Request doesn't contain a chat ID."));
+                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCID", "Request doesn't contain a chat ID."));
                                         }
                                     }
                                     else
                                     {
                                         statuscode = 404;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "IDWRONG", "ID is wrong."));
+                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "IDWRONG", "ID is wrong."));
                                     }
                                 }
                                 else
                                 {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOFED", "Not a valid federation."));
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Not a valid federation."));
                                 }
                             }
                             else
                             {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOID", "Request doesn't contain a id."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOID", "Request doesn't contain a id."));
                             }
                         }
                         else
                         {
                             statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
                         }
                     }
                     else
                     {
                         statuscode = 411;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "INVALID", "Couldn't parse request."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "INVALID", "Couldn't parse request."));
                     }
                 }
                 else if (url == "federationrecievechatupdates")
@@ -4152,16 +2585,16 @@ item.info = profileShort.fromGroup(p);
                             {
                                 if (request.ContainsKey("updates"))
                                 {
-                                    if (federations.ContainsKey(request["serverurl"].ToString() ?? ""))
+                                    if (Federation.federations.ContainsKey(request["serverurl"].ToString() ?? ""))
                                     {
-                                        Federation fed = federations[request["serverurl"].ToString() ?? ""];
+                                        Federation fed = Federation.federations[request["serverurl"].ToString() ?? ""];
                                         if (fed.id == request["id"].ToString())
                                         {
                                             if (request.ContainsKey("chatid"))
                                             {
                                                 string id = (request["chatid"].ToString() ?? "").Split("@")[0];
                                                 bool isremote = true;
-                                                Chat? chat = await Chat.getChat(id + "@" + fed.serverurl);
+                                                Chat? chat = await Chat.getChat(id + "@" + fed.serverURL);
                                                 if (chat == null)
                                                 {
                                                     chat = await Chat.getChat(id);
@@ -4184,18 +2617,32 @@ item.info = profileShort.fromGroup(p);
                                                                     continue; //Don't allow Pamuk messages from other federations, because they are probably echoes.
                                                                 }
                                                             }
-                                                            chatMessage msg = new chatMessage()
+
+                                                            // IDK how else to do this...
+                                                            string? forwardedFrom = null;
+                                                            if (update.ContainsKey("forwardedfrom"))
+                                                            {
+                                                                if (update["forwardedfrom"] != null)
+                                                                {
+                                                                    forwardedFrom = (update["forwardedfrom"] ?? "").ToString();
+                                                                    if (forwardedFrom == "") {
+                                                                        forwardedFrom = null;
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            ChatMessage msg = new ChatMessage()
                                                             {
                                                                 sender = (update["sender"] ?? "").ToString() ?? "",
                                                                 content = (update["content"] ?? "").ToString() ?? "",
                                                                 time = (update["time"] ?? "").ToString() ?? "",
                                                                 replymsgid = update.ContainsKey("replymsgid") ? update["replymsgid"] == null ? null : (update["replymsgid"] ?? "").ToString() : null,
-                                                                forwardedfrom = update.ContainsKey("forwardedfrom") ? (update["forwardedfrom"] == null ? null : (update["forwardedfrom"] ?? "").ToString()) : null,
+                                                                forwardedfrom = forwardedFrom,
                                                                 files = update.ContainsKey("files") && (update["files"] is JArray) ? ((JArray?)update["files"] ?? new JArray()).ToObject<List<string>>() : null,
                                                                 pinned = update["pinned"] != null ? (bool)update["pinned"] : false,
-                                                                reactions = update.ContainsKey("reactions") && (update["reactions"] is JObject) ? ((JObject?)update["reactions"] ?? new JObject()).ToObject<messageReactions>() : new messageReactions(),
+                                                                reactions = update.ContainsKey("reactions") && (update["reactions"] is JObject) ? ((JObject?)update["reactions"] ?? new JObject()).ToObject<MessageReactions>() : new MessageReactions(),
                                                             };
-                                                            fed.fixmessage(msg);
+                                                            fed.fixMessage(msg);
                                                             chat.sendMessage(msg, true, mid);
                                                         }
                                                         else if (eventn == "REACTIONS")
@@ -4207,7 +2654,7 @@ item.info = profileShort.fromGroup(p);
                                                                     var reactions = (JObject?)update["rect"];
                                                                     if (reactions != null)
                                                                     {
-                                                                        var r = reactions.ToObject<messageReactions>();
+                                                                        var r = reactions.ToObject<MessageReactions>();
                                                                         if (r != null) chat.putReactions(mid, r);
                                                                     }
                                                                 }
@@ -4230,55 +2677,56 @@ item.info = profileShort.fromGroup(p);
                                                 else
                                                 {
                                                     statuscode = 404;
-                                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOCHAT", "Chat not found."));
+                                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCHAT", "Chat not found."));
                                                 }
                                             }
                                             else
                                             {
                                                 statuscode = 411;
-                                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOCID", "Request doesn't contain a chat ID."));
+                                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCID", "Request doesn't contain a chat ID."));
                                             }
                                         }
                                         else
                                         {
                                             statuscode = 403;
-                                            res = JsonConvert.SerializeObject(new serverResponse("error", "IDWRONG", "ID is wrong."));
+                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "IDWRONG", "ID is wrong."));
                                         }
 
                                     }
                                     else
                                     {
                                         statuscode = 404;
-                                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOFED", "Not a valid federation."));
+                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Not a valid federation."));
                                     }
                                 }
                                 else
                                 {
                                     statuscode = 411;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "NOUPDATES", "Request doesn't contain updates."));
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUPDATES", "Request doesn't contain updates."));
                                 }
                             }
                             else
                             {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOID", "Request doesn't contain a ID."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOID", "Request doesn't contain a ID."));
                             }
                         }
                         else
                         {
                             statuscode = 411;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOSERVER", "Request doesn't contain a server url."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSERVER", "Request doesn't contain a server url."));
                         }
                     }
                     else
                     {
                         statuscode = 411;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "INVALID", "Couldn't parse request."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "INVALID", "Couldn't parse request."));
                     }
                 }
+                #endregion
                 else
                 {
-                    actionReturn actionreturn = await doaction(url, body);
+                    ActionReturn actionreturn = await doAction(url, body);
                     statuscode = actionreturn.statuscode;
                     res = actionreturn.res;
                 }
@@ -4289,16 +2737,6 @@ item.info = profileShort.fromGroup(p);
                 res = e.ToString();
                 Console.WriteLine(e.ToString());
             }
-            
-            try
-            {
-                context.Response.StatusCode = statuscode;
-                context.Response.ContentType = "text/json";
-                byte[] bts = Encoding.UTF8.GetBytes(res);
-                context.Response.OutputStream.Write(bts, 0, bts.Length);
-                context.Response.Close();
-            }
-            catch { }
         }
         else
         { //Upload call
@@ -4314,15 +2752,16 @@ item.info = profileShort.fromGroup(p);
                             int contentLength = int.Parse(context.Request.Headers["content-length"] ?? "0");
                             if (contentLength != 0)
                             {
+                                manualRespond = true;
                                 string id = "";
                                 do
                                 {
                                     id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
                                 }
                                 while (File.Exists("data/upload/" + id));
-                                string? filename = context.Request.Headers["filename"];
+                                string? filename = id;// = context.Request.Headers["filename"];
                                 //if (filename == null) {
-                                filename = id;
+                                //filename = id;
                                 //}else {
                                 //    filename = filename + id;
                                 //}
@@ -4333,7 +2772,7 @@ item.info = profileShort.fromGroup(p);
                                 await stream.CopyToAsync(fileStream);
                                 fileStream.Close();
                                 fileStream.Dispose();
-                                fileUpload u = new()
+                                FileUpload u = new()
                                 {
                                     size = contentLength,
                                     actualName = context.Request.Headers["filename"] ?? id,
@@ -4345,7 +2784,7 @@ item.info = profileShort.fromGroup(p);
                                 if (uf == null) throw new Exception("???");
                                 File.WriteAllText("data/upload/" + fpname, uf);
 
-                                res = JsonConvert.SerializeObject(new fileUploadResponse("success", "%SERVER%getmedia?file=" + fpname));
+                                res = JsonConvert.SerializeObject(new FileUploadResponse("success", "%SERVER%getmedia?file=" + fpname));
                                 context.Response.StatusCode = statuscode;
                                 context.Response.ContentType = "text/json";
                                 byte[] bts = Encoding.UTF8.GetBytes(res);
@@ -4359,25 +2798,25 @@ item.info = profileShort.fromGroup(p);
                             else
                             {
                                 statuscode = 404;
-                                res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "No file."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFILE", "No file."));
                             }
                         }
                         else
                         {
                             statuscode = 404;
-                            res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "No file."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFILE", "No file."));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOUSER", "User doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 411;
-                    res = JsonConvert.SerializeObject(new serverResponse("error"));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error"));
                 }
             }
             // Getmedia call
@@ -4389,9 +2828,10 @@ item.info = profileShort.fromGroup(p);
                     string type = context.Request.QueryString["type"] ?? "";
                     if (File.Exists("data/upload/" + file))
                     {
-                        fileUpload? f = JsonConvert.DeserializeObject<fileUpload>(await File.ReadAllTextAsync("data/upload/" + file));
+                        FileUpload? f = JsonConvert.DeserializeObject<FileUpload>(await File.ReadAllTextAsync("data/upload/" + file));
                         if (f != null)
                         {
+                            manualRespond = true;
                             //context.Response.AddHeader("Content-Length", f.size.ToString());
                             if (context.Request.Headers["sec-fetch-dest"] != "document")
                             {
@@ -4420,7 +2860,7 @@ item.info = profileShort.fromGroup(p);
                                 if (error)
                                 {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new serverResponse("error", "File doesn't exist, could be the thumbnail."));
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "File doesn't exist, could be the thumbnail."));
                                 }
                                 else
                                 {
@@ -4436,39 +2876,56 @@ item.info = profileShort.fromGroup(p);
                         else
                         {
                             statuscode = 500;
-                            res = JsonConvert.SerializeObject(new serverResponse("error"));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new serverResponse("error", "NOFILE", "File doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFILE", "File doesn't exist."));
                     }
                 }
                 else
                 {
                     statuscode = 411;
-                    res = JsonConvert.SerializeObject(new serverResponse("error"));
+                    res = JsonConvert.SerializeObject(new ServerResponse("error"));
                 }
             }
         }
+        
+        if (!manualRespond)
+            try
+            {
+                context.Response.StatusCode = statuscode;
+                context.Response.ContentType = "text/json";
+                byte[] bts = Encoding.UTF8.GetBytes(res);
+                context.Response.OutputStream.Write(bts, 0, bts.Length);
+                context.Response.Close();
+            }
+            catch { }
         //Console.WriteLine("Respone given to a request.");
     }
 
-    static void respondcall(IAsyncResult result) {
-        HttpListener? listener = (HttpListener?) result.AsyncState;
+    /// <summary>
+    /// Handles new http calls.
+    /// </summary>
+    /// <param name="result"></param>
+    static void respondCall(IAsyncResult result)
+    {
+        HttpListener? listener = (HttpListener?)result.AsyncState;
         if (listener == null) return;
         HttpListenerContext? context = listener.EndGetContext(result);
-        _httpListener.BeginGetContext(new AsyncCallback(respondcall),_httpListener);
-        if (context != null) {
-            respond(context);
+        _httpListener.BeginGetContext(new AsyncCallback(respondCall), _httpListener);
+        if (context != null)
+        {
+            respondToRequest(context);
         }
     }
 
     static void saveData() {
         Console.WriteLine("Saving Data...");
         Console.WriteLine("Saving Chats...");
-        foreach (var c in chatsCache) { // Save chats in memory to files
+        foreach (var c in Chat.chatsCache) { // Save chats in memory to files
             Console.WriteLine("Saving " + c.Key);
             try {
                 c.Value.saveChat();
@@ -4530,7 +2987,7 @@ item.info = profileShort.fromGroup(p);
                 HTTPSport = args[1];
                 if (args.Length > 2)
                 {// federation url
-                    thisserverurl = args[2];
+                    Federation.thisServerURL = args[2];
                 }
             }
         }
@@ -4549,7 +3006,7 @@ item.info = profileShort.fromGroup(p);
         _httpListener.Start();
         Console.WriteLine("Server started. On ports " + HTTPport + " and " + HTTPSport);
         // Start responding for server
-        _httpListener.BeginGetContext(new AsyncCallback(respondcall),_httpListener);
+        _httpListener.BeginGetContext(new AsyncCallback(respondCall),_httpListener);
         Console.WriteLine("Type exit to exit, type save to save.");
         autoSaveTick(); // Start the autosave ticker
         new Thread(mediaProcesser).Start();
