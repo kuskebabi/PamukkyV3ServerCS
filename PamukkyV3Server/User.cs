@@ -99,7 +99,7 @@ class userConfig
 /// </summary>
 class UserStatus
 {
-    [JsonIgnore]
+    const int timeout = 3;
     public static ConcurrentDictionary<string, UserStatus> userstatus = new();
     /// <summary>
     /// Chat ID of the chat which the user was typing it, please use getTyping if you want to check if user is typing.
@@ -127,7 +127,7 @@ class UserStatus
         }
         else
         {
-            return typeTime.Value.AddSeconds(3) > DateTime.Now && chatID == typingChat;
+            return typeTime.Value.AddSeconds(timeout) > DateTime.Now && chatID == typingChat;
         }
     }
 
@@ -161,7 +161,7 @@ class UserStatus
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
                 Task.Delay(3100).ContinueWith((task) =>
                 { // automatically set user as not typing.
-                    if (chatID == typingChat && !(typeTime.Value.AddSeconds(3) > DateTime.Now))
+                    if (chatID == typingChat && !(typeTime.Value.AddSeconds(timeout) > DateTime.Now))
                     { //Check if it's the same typing update.
                         typeTime = null;
                         chat.remTyping(user);
@@ -200,6 +200,8 @@ class UserProfile
     public static ConcurrentDictionary<string, UserProfile> userProfileCache = new();
     [JsonIgnore]
     public string userID = "";
+    [JsonIgnore]
+    public List<UpdateHook> updateHooks = new();
 
     public string name = "User";
     public string picture = "";
@@ -212,6 +214,21 @@ class UserProfile
     public void setOnline()
     {
         lastOnlineTime = DateTime.Now;
+        foreach (var hook in updateHooks)
+        {
+            hook["online"] = "Online";
+        }
+        Task.Delay(10100).ContinueWith((task) =>
+        { //save after 5 mins and recall
+            string onlineStatus = getOnline();
+            if (onlineStatus != "Online")
+            {
+                foreach (var hook in updateHooks)
+                {
+                    hook["online"] = onlineStatus;
+                }
+            }
+        });
     }
 
     /// <summary>
@@ -226,7 +243,7 @@ class UserProfile
         }
         else
         {
-            if (lastOnlineTime.Value.AddSeconds(5) > DateTime.Now)
+            if (lastOnlineTime.Value.AddSeconds(10) > DateTime.Now)
             {
                 return "Online";
             }
@@ -262,6 +279,8 @@ class UserProfile
                 {
                     up.userID = userID;
                     userProfileCache[userID] = up;
+                    up.save(); // Save the user from the federation in case it goes offline after some time.
+                    
                     return up;
                 }
             }
@@ -426,4 +445,117 @@ class chatItem
     //for preview at chats list.
     //public profileShort? info = null;
     public ChatMessage? lastmessage = null;
+}
+
+class UpdateHook : ConcurrentDictionary<string, object?> {}
+class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
+{
+    public string token;
+
+    public UpdateHooks(string userToken)
+    {
+        token = userToken;
+    }
+
+    /// <summary>
+    /// Filters all the updates to only have ones with new updates and clears them.
+    /// </summary>
+    /// <param name="userToken">Token of the client</param>
+    /// <returns></returns>
+    public UpdateHooks GetNewUpdates()
+    {
+        UpdateHooks rtrn = new(token);
+        foreach (var hook in this)
+        {
+            if (hook.Value.Count > 0)
+            {
+                UpdateHook uhook = new();
+                foreach (var kv in hook.Value) {
+                    uhook[kv.Key] = kv.Value;
+                }
+                rtrn[hook.Key] = uhook;
+                hook.Value.Clear();
+            }
+        }
+        return rtrn;
+    }
+
+    /// <summary>
+    /// Waits for new updates to happen or timeout and returns them.
+    /// </summary>
+    /// <param name="userToken">Token of the client..</param>
+    /// <param name="maxWait">How long should it wait before giving up? each count adds 250ms more.</param>
+    /// <returns>All update hooks</returns>
+    public async Task<UpdateHooks> waitForUpdates(int maxWait = 80)
+    {
+
+        int wait = maxWait;
+        var updates = GetNewUpdates();
+
+        while (updates.Count == 0 && wait > 0)
+        {
+            await Task.Delay(250);
+            updates = GetNewUpdates();
+            --wait;
+        }
+
+        return updates;
+    }
+
+    /// <summary>
+    /// Adds a update hook for a client
+    /// </summary>
+    /// <param name="target">Can be Chat and UserProfile</param>
+    public async void AddHook(object target)
+    {
+        string hookName;
+
+        if (target is Chat)
+        {
+            hookName = "chat:" + ((Chat)target).chatID;
+        }
+        else if (target is UserProfile)
+        {
+            hookName = "user:" + ((UserProfile)target).userID;
+        }
+        else
+        {
+            throw new InvalidCastException("target only can be Chat or UserProfile.");
+        }
+
+        UpdateHook hook = new();
+        this[hookName] = hook;
+
+        if (target is Chat)
+        {
+            Chat chat = (Chat)target;
+            if (chat.canDo(await Pamukky.GetUIDFromToken(token) ?? "", Chat.chatAction.Read))
+                chat.updateHooks.Add(hook);
+        }
+        else if (target is UserProfile)
+        {
+            UserProfile profile = (UserProfile)target;
+            profile.updateHooks.Add(hook);
+        }
+    }
+}
+
+class Updaters : ConcurrentDictionary<string, UpdateHooks>
+{
+    static Updaters updaters = new();
+
+    /// <summary>
+    /// Gets all the updates even if there is none.
+    /// </summary>
+    /// <param name="userToken">Token of the client</param>
+    /// <returns>All update hooks</returns>
+    public static UpdateHooks Get(string userToken)
+    {
+        if (!updaters.ContainsKey(userToken))
+        {
+            updaters[userToken] = new(userToken);
+        }
+
+        return updaters[userToken];
+    }
 }

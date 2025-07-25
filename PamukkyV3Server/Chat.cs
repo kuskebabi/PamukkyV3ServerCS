@@ -249,6 +249,11 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     public Chat? pinnedMessages;
 
+    /// <summary>
+    /// Update sender list for clients that use (User.cs)Updates.AddHook.
+    /// </summary>
+    public List<UpdateHook> updateHooks = new();
+
     int getIndexOfKeyInDictionary(string key)
     {
         for (int i = 0; i < Count; ++i)
@@ -258,19 +263,50 @@ class Chat : OrderedDictionary<string, ChatMessage>
         return -1;
     }
 
-    #region Functions to add/remove user's typing status.
+    #region Typing status
     public void setTyping(string uid)
     {
         if (!typingUsers.Contains(uid))
         {
             typingUsers.Add(uid);
+            foreach (UpdateHook hook in updateHooks)
+            {
+                hook["TYPING"] = typingUsers;
+            }
         }
     }
 
     public void remTyping(string uid)
     {
-        typingUsers.Remove(uid);
+        if (typingUsers.Remove(uid))
+        {
+            foreach (UpdateHook hook in updateHooks)
+            {
+                hook["TYPING"] = typingUsers;
+            }
+        }
     }
+
+    /// <summary>
+    /// Waits for new typing updates to happen or timeout and returns them.
+    /// </summary>
+    /// <param name="maxWait">How long should it wait before giving up? each count adds 500ms more.</param>
+    /// <returns>List of UIDs of typing users.</returns>
+    public async Task<List<string>> waitForTypingUpdates(int maxWait = 40)
+    {
+        List<string> lastTyping = new(typingUsers);
+
+        int wait = maxWait;
+
+        while (lastTyping.SequenceEqual(typingUsers) && wait > 0)
+        {
+            await Task.Delay(500);
+            --wait;
+        }
+
+        return typingUsers;
+    }
+
     #endregion
 
     #region Chat updates
@@ -352,6 +388,13 @@ class Chat : OrderedDictionary<string, ChatMessage>
         }
         newID += 1;
         updates[newID] = update;
+
+        var formattedUpdate = formatUpdate(update);
+        foreach (UpdateHook hook in updateHooks)
+        {
+            hook[newID.ToString()] = formattedUpdate;
+        }
+
         if (push) pushUpdate(update);
     }
 
@@ -384,27 +427,24 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <param name="since"></param>
     /// <returns>Dictionary that holds updates with their IDs</returns>
 
-    public Dictionary<long, Dictionary<string, object?>>? getUpdates(long since)
+    public Dictionary<long, Dictionary<string, object?>> getUpdates(long since)
     {
         Dictionary<long, Dictionary<string, object?>> updatesSince = new();
         if (updates.Count == 0)
         {
             return updatesSince;
         }
-        else
+        if (since > updates.Keys.Max())
         {
-            if (since > updates.Keys.Max())
-            {
-                return updatesSince;
-            }
-            else if (since == 0)
-            {
-                since = updates.Keys.Min();
-            }
-            else if (since == -1)
-            {
-                since = updates.Keys.Max() - 1;
-            }
+            return updatesSince;
+        }
+        else if (since == 0) // For getting since first one
+        {
+            since = updates.Keys.Min();
+        }
+        else if (since == -1) // For getting last one
+        {
+            since = updates.Keys.Max() - 1;
         }
 
         //var keysToRemove = new List<long>();
@@ -433,6 +473,25 @@ class Chat : OrderedDictionary<string, ChatMessage>
         return updatesSince;
     }
 
+    /// <summary>
+    /// Waits for new updates to happen or timeout and returns them.
+    /// </summary>
+    /// <param name="maxWait">How long should it wait before giving up? each count adds 500ms more.</param>
+    /// <returns>Dictionary that holds updates with their IDs</returns>
+    public async Task<Dictionary<long, Dictionary<string, object?>>> waitForUpdates(int maxWait = 40)
+    {
+        long lastID = newID;
+
+        int wait = maxWait;
+
+        while (lastID == newID && wait > 0)
+        {
+            await Task.Delay(500);
+            --wait;
+        }
+
+        return getUpdates(lastID);
+    }
 
     /// <summary>
     /// Makes a update contain more info to send to clients.
@@ -630,7 +689,14 @@ class Chat : OrderedDictionary<string, ChatMessage>
     {
         if (Count > 0)
         {
-            var ret = Values.ElementAt(Count - 1);
+            var msg = Values.ElementAt(Count - 1);
+            var ret = new ChatMessage()
+            {
+                sender = msg.sender,
+                content = msg.content,
+                time = msg.time
+            };
+            
             if (previewMode)
             {
                 ret.content = ret.content.Split("\n")[0];

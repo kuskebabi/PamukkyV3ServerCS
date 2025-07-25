@@ -32,6 +32,8 @@ internal class Pamukky
     // ---- Caching ----
     static ConcurrentDictionary<string, loginCred> loginCreds = new();
 
+    //                          token                         updater names and value of it.
+
     // ---- Http ----
     static HttpListener _httpListener = new HttpListener();
     
@@ -174,7 +176,7 @@ internal class Pamukky
     /// <param name="token"></param>
     /// <param name="preventBypass"></param>
     /// <returns></returns>
-    static async Task<string?> GetUIDFromToken(string token, bool preventBypass = true)
+    public static async Task<string?> GetUIDFromToken(string token, bool preventBypass = true)
     {
         loginCred? cred = await GetLoginCred(token, preventBypass);
         if (cred == null)
@@ -591,6 +593,15 @@ item.info = profileShort.fromGroup(p);
                 {
                     //Console.WriteLine(JsonConvert.SerializeObject(notifications));
                     var usernotifies = Notifications.Get(uid);
+                    if (a.ContainsKey("mode") && a["mode"] == "hold" && usernotifies.Count == 0) // Hold mode means that if there isn't any notifications, wait for one until a timeout.
+                    {
+                        int wait = 20; // How long will this wait for notification to appear
+                        while (usernotifies.Count == 0 && wait > 0)
+                        {
+                            await Task.Delay(1000);
+                            --wait;
+                        }
+                    }
                     res = JsonConvert.SerializeObject(usernotifies);
                     List<string> keys = new();
                     foreach (string key in usernotifies.Keys)
@@ -611,6 +622,55 @@ item.info = profileShort.fromGroup(p);
                 {
                     statuscode = 404;
                     res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
+                }
+            }
+            else
+            {
+                statuscode = 411;
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
+            }
+        }
+        else if (action == "addhook")
+        { // Add update hook
+            var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("ids") && a["ids"] is JArray)
+            {
+                UpdateHooks updhooks = Updaters.Get(a["token"].ToString() ?? "");
+                foreach (string? hid in (JArray)a["ids"])
+                {
+                    if (hid == null) continue;
+
+                    string[] split = hid.Split(":");
+                    string type = split[0];
+                    string id = split[1];
+                    switch (type)
+                    {
+                        case "chat":
+                            Chat? chat = await Chat.getChat(id);
+                            if (chat != null)
+                            {
+                                updhooks.AddHook(chat);
+                            }
+                            else
+                            {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                            }
+                            break;
+                        
+                        case "user":
+                            UserProfile? user = await UserProfile.Get(id);
+                            if (user != null)
+                            {
+                                updhooks.AddHook(user);
+                            }
+                            else
+                            {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
+                            }
+                            break;
+                    }
                 }
             }
             else
@@ -1224,36 +1284,64 @@ item.info = profileShort.fromGroup(p);
             }
         }
         else if (action == "getupdates")
-        { //Chat updates
+        { // Updates
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
-            if (a != null && a.ContainsKey("token") && a.ContainsKey("id") && a.ContainsKey("since"))
+            if (a != null && a.ContainsKey("token"))
             {
-                string? uid = await GetUIDFromToken(a["token"]);
-                if (uid != null)
+                if (a.ContainsKey("id")) // Chat based updaters
                 {
-                    Chat? chat = await Chat.getChat(a["id"]);
-                    if (chat != null)
+                    string? uid = await GetUIDFromToken(a["token"]);
+                    if (uid != null)
                     {
-                        if (chat.canDo(uid, Chat.chatAction.Read))
-                        { //Check if user can even "read" it at all
-                            res = JsonConvert.SerializeObject(chat.getUpdates(long.Parse(a["since"])));
+                        Chat? chat = await Chat.getChat(a["id"]);
+                        if (chat != null)
+                        {
+                            if (chat.canDo(uid, Chat.chatAction.Read))
+                            { //Check if user can even "read" it at all
+                                string requestMode = "normal";
+                                if (a.ContainsKey("mode"))
+                                {
+                                    requestMode = a["mode"];
+                                }
+
+                                if (requestMode == "updater") // Updater mode will wait for a new message. "since" shouldn't work here.
+                                {
+                                    res = JsonConvert.SerializeObject(await chat.waitForUpdates());
+                                }
+                                else
+                                {
+                                    if (a.ContainsKey("since"))
+                                    {
+                                        res = JsonConvert.SerializeObject(chat.getUpdates(long.Parse(a["since"])));
+                                    }
+                                    else
+                                    {
+                                        statuscode = 411;
+                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSINCE", "\"since\" not found in the normal mode request."));
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                statuscode = 401;
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            }
                         }
                         else
                         {
-                            statuscode = 401;
-                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            statuscode = 404;
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
                         }
                     }
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                     }
                 }
-                else
+                else // Global based updates
                 {
-                    statuscode = 404;
-                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
+                    res = JsonConvert.SerializeObject(await Updaters.Get(a["token"]).waitForUpdates());
                 }
             }
             else
@@ -1324,7 +1412,15 @@ item.info = profileShort.fromGroup(p);
                     {
                         if (chat.canDo(uid, Chat.chatAction.Read))
                         { //Ofc, if the user has the permission to read the chat
-                            res = JsonConvert.SerializeObject(chat.typingUsers);
+                            string requestMode = "normal";
+                            if (a.ContainsKey("mode"))
+                            {
+                                requestMode = a["mode"];
+                            }
+                            if (requestMode == "updater")
+                                res = JsonConvert.SerializeObject(await chat.waitForTypingUpdates());
+                            else
+                                res = JsonConvert.SerializeObject(chat.typingUsers);
                         }
                         else
                         {
@@ -2639,8 +2735,8 @@ item.info = profileShort.fromGroup(p);
                                                                 replymsgid = update.ContainsKey("replymsgid") ? update["replymsgid"] == null ? null : (update["replymsgid"] ?? "").ToString() : null,
                                                                 forwardedfrom = forwardedFrom,
                                                                 files = update.ContainsKey("files") && (update["files"] is JArray) ? ((JArray?)update["files"] ?? new JArray()).ToObject<List<string>>() : null,
-                                                                pinned = update["pinned"] != null ? (bool)update["pinned"] : false,
-                                                                reactions = update.ContainsKey("reactions") && (update["reactions"] is JObject) ? ((JObject?)update["reactions"] ?? new JObject()).ToObject<MessageReactions>() : new MessageReactions(),
+                                                                pinned = update["pinned"] != null ? (bool?)update["pinned"] ?? false : false,
+                                                                reactions = update.ContainsKey("reactions") && (update["reactions"] is JObject) ? ((JObject?)update["reactions"] ?? new JObject()).ToObject<MessageReactions>() ?? new MessageReactions() : new MessageReactions(),
                                                             };
                                                             fed.fixMessage(msg);
                                                             chat.sendMessage(msg, true, mid);
@@ -2843,7 +2939,14 @@ item.info = profileShort.fromGroup(p);
                             {
                                 var fileStream = File.OpenRead(path);
                                 context.Response.KeepAlive = false;
-                                await fileStream.CopyToAsync(context.Response.OutputStream);
+                                try
+                                {
+                                    await fileStream.CopyToAsync(context.Response.OutputStream);
+                                }
+                                catch
+                                {
+                                    
+                                }
                                 context.Response.Close();
                                 fileStream.Close();
                                 fileStream.Dispose();
