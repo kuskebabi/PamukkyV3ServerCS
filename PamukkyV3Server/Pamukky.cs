@@ -640,7 +640,7 @@ item.info = profileShort.fromGroup(p);
                 {
                     if (hid == null) continue;
 
-                    string[] split = hid.Split(":");
+                    string[] split = hid.Split(":", 2);
                     string type = split[0];
                     string id = split[1];
                     switch (type)
