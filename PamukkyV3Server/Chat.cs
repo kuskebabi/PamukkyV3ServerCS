@@ -80,7 +80,7 @@ class MessageReactions : ConcurrentDictionary<string, MessageEmojiReactions>
 /// <summary>
 /// Chat file/attachment structure
 /// </summary>
-class chatFile
+class ChatFile
 {
     public string url = "";
     public string? name;
@@ -90,17 +90,18 @@ class chatFile
 /// <summary>
 /// Chat message formatted to send to clients.
 /// </summary>
-class chatMessageFormatted : ChatMessage
+class ChatMessageFormatted : ChatMessage
 { // Chat message formatted for client sending.
     //public profileShort? senderuser; REMOVED. Data waste.
     public string? replymsgcontent;
     public string? replymsgsender;
 
-    public List<chatFile>? gImages;
-    public List<chatFile>? gVideos;
-    public List<chatFile>? gFiles;
+    public List<ChatFile>? gImages;
+    public List<ChatFile>? gVideos;
+    public List<ChatFile>? gAudio;
+    public List<ChatFile>? gFiles;
     //public string? forwardedname; REMOVED. Data waste.
-    public chatMessageFormatted(ChatMessage msg)
+    public ChatMessageFormatted(ChatMessage msg)
     {
         sender = msg.sender;
         content = msg.content;
@@ -117,9 +118,6 @@ class chatMessageFormatted : ChatMessage
 
         if (files != null)
         { //Group files in the message to types.
-            if (gVideos == null) gVideos = new();
-            if (gImages == null) gImages = new();
-            if (gFiles == null) gFiles = new();
             foreach (string fi in files)
             {
                 string fil = fi.Replace(Federation.thisServerURL, "%SERVER%");
@@ -134,18 +132,28 @@ class chatMessageFormatted : ChatMessage
                             string[] spl = f.contentType.Split("/");
                             if (spl.Length > 1)
                             {
-                                string extension = spl[1];
+                                var chatFile = new ChatFile() { url = fil, name = f.actualName, size = f.size };
+                                string extension = spl[1].ToLower();
                                 if (extension == "png" || extension == "jpg" || extension == "jpeg" || extension == "gif" || extension == "bmp")
                                 {
-                                    gImages.Add(new chatFile() { url = fil });
+                                    if (gImages == null) gImages = new();
+                                    gImages.Add(chatFile);
                                 }
                                 else if (extension == "mp4")
                                 {
-                                    gVideos.Add(new chatFile() { url = fil });
+                                    if (gVideos == null) gVideos = new();
+                                    gVideos.Add(chatFile);
+                                }
+                                else if (extension == "mpeg" || extension == "m4a")
+                                {
+                                    if (gAudio == null) gAudio = new();
+                                    gAudio.Add(chatFile);
                                 }
                                 else
                                 {
-                                    gFiles.Add(new chatFile() { url = fil, name = f.actualName, size = f.size });
+                                    if (gFiles == null) gFiles = new();
+                                    gFiles.Add(chatFile);
+                                    //Console.WriteLine(extension);
                                 }
                             }
                         }
@@ -153,7 +161,8 @@ class chatMessageFormatted : ChatMessage
                 }
                 else
                 {
-                    gFiles.Add(new chatFile() { url = fi, name = "File", size = -1 });
+                    if (gFiles == null) gFiles = new();
+                    gFiles.Add(new ChatFile() { url = fi, name = "File", size = -1 });
                 }
             }
         }
@@ -168,6 +177,7 @@ class chatMessageFormatted : ChatMessage
         d["replymsgid"] = replymsgid;
         d["gImages"] = gImages;
         d["gVideos"] = gVideos;
+        d["gAudio"] = gAudio;
         d["gFiles"] = gFiles;
         d["sender"] = sender;
         d["content"] = content;
@@ -222,7 +232,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <summary>
     /// Dictionary to cache formatted messages. Shouldn't be directly used to get them.
     /// </summary>
-    private Dictionary<string, chatMessageFormatted> formatCache = new();
+    private Dictionary<string, ChatMessageFormatted> formatCache = new();
 
     /// <summary>
     /// List of currently typing users in this chat.
@@ -505,7 +515,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
         string msgid = (upd["id"] ?? "").ToString() ?? "";
         if (eventtype == "NEWMESSAGE" || eventtype == "PINNED")
         {
-            chatMessageFormatted? f = formatMessage(msgid);
+            ChatMessageFormatted? f = formatMessage(msgid);
             if (f != null)
             {
                 update = f.toDictionary();
@@ -530,12 +540,12 @@ class Chat : OrderedDictionary<string, ChatMessage>
     #endregion
 
     #region Message read
-    private chatMessageFormatted? formatMessage(string key)
+    private ChatMessageFormatted? formatMessage(string key)
     {
         if (formatCache.ContainsKey(key)) return formatCache[key];
         if (ContainsKey(key))
         {
-            chatMessageFormatted formatted = new chatMessageFormatted(this[key]);
+            ChatMessageFormatted formatted = new ChatMessageFormatted(this[key]);
             formatCache[key] = formatted;
             if (formatted.replymsgid != null)
             {
@@ -558,12 +568,12 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// Formats the entire chat
     /// </summary>
     /// <returns>The formatted chat</returns>
-    public OrderedDictionary<string, chatMessageFormatted> format()
+    public OrderedDictionary<string, ChatMessageFormatted> format()
     {
-        OrderedDictionary<string, chatMessageFormatted> fd = new();
+        OrderedDictionary<string, ChatMessageFormatted> fd = new();
         foreach (var kv in this)
         {
-            chatMessageFormatted? formattedMessage = formatMessage(kv.Key);
+            ChatMessageFormatted? formattedMessage = formatMessage(kv.Key);
             if (formattedMessage == null) continue;
             fd[kv.Key] = formattedMessage;
         }
@@ -860,7 +870,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
             {
                 getPinned().Remove(msgID);
             }
-            chatMessageFormatted? f = formatMessage(msgID);
+            ChatMessageFormatted? f = formatMessage(msgID);
             if (f != null)
             {
                 Dictionary<string, object?> update = new();
