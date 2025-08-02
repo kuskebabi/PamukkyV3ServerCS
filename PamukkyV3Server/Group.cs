@@ -34,30 +34,44 @@ class Group
             string[] split = gid.Split("@");
             string id = split[0];
             string server = split[1];
-            var connection = await Federation.connect(server);
+            var connection = await Federation.connect(server, true);
             if (connection != null)
             {
-                var g = await connection.getGroup(id);
-                if (g is Group)
+                if (connection.connected == true)
                 {
-                    var group = (Group)g;
-                    group.groupID = gid;
-                    groupsCache[gid] = group;
-                    group.Save(); // Save the group from the federation in case it goes offline after some time.
+                    var g = await connection.getGroup(id);
+                    if (g is Group)
+                    {
+                        var group = (Group)g;
+                        group.groupID = gid;
+                        groupsCache[gid] = group;
+                        group.Save(); // Save the group from the federation in case it goes offline after some time.
 
-                    return group;
-                }
-                else if (g is bool)
-                {
-                    if ((bool)g)
-                    {
-                        return new Group() { groupID = gid }; //make a interface enough to join it.
+                        return group;
                     }
-                    else
+                    else if (g is bool)
                     {
-                        return null;
+                        if ((bool)g)
+                        {
+                            return new Group() { groupID = gid }; //make a interface enough to join it.
+                        }
+                        else
+                        {
+                            return null;
+                        }
                     }
                 }
+                connection.Connected += async (_, _) =>
+                { 
+                    var g = await connection.getGroup(id);
+                    if (g is Group)
+                    {
+                        var group = (Group)g;
+                        group.groupID = gid;
+                        groupsCache[gid] = group;
+                        group.Save(); // Save the group from the federation in case it goes offline after some time.
+                    }
+                };
             }
         }
         if (File.Exists("data/info/" + gid + "/info"))

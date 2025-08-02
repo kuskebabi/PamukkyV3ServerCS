@@ -994,10 +994,39 @@ class Chat : OrderedDictionary<string, ChatMessage>
             string[] split = chat.Split("@");
             string id = split[0];
             string server = split[1];
-            var connection = await Federation.connect(server);
+            var connection = await Federation.connect(server, true);
             if (connection != null)
             {
-                loadedChat = await connection.getChat(id);
+                if (connection.connected == true) loadedChat = await connection.getChat(id);
+                connection.Connected += async (_,_) =>
+                {
+                    Chat? newChat = await connection.getChat(id);
+                    if (newChat != null)
+                    {
+                        newChat.chatID = chat;
+                        newChat.isGroup = !chat.Contains("-");
+                        newChat.newID = DateTime.Now.Ticks;
+                        if (newChat.isGroup)
+                        {
+                            // Load the real group
+                            Group? group = await Group.Get(chat);
+                            if (group != null)
+                            {
+                                newChat.group = group;
+                            }
+                        }
+
+                        newChat.pinnedMessages = new() { chatID = chat, mainchat = loadedChat };
+                        foreach (var kv in newChat)
+                        {
+                            if (kv.Value.pinned)
+                            {
+                                newChat.pinnedMessages[kv.Key] = kv.Value;
+                            }
+                        }
+                        chatsCache[chat] = newChat;
+                    }
+                };
             }
         }
 

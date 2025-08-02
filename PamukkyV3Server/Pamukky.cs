@@ -2286,10 +2286,9 @@ item.info = profileShort.fromGroup(p);
                         {
                             if (request.serverurl != Federation.thisServerURL)
                             {
-                                if (Federation.federationClient == null) Federation.federationClient = new();
                                 try
                                 {
-                                    var httpTask = await Federation.federationClient.GetAsync(request.serverurl);
+                                    var httpTask = await Federation.GetHttpClient().GetAsync(request.serverurl);
                                     // Valid, allow to federate
                                     string id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
                                     Federation fed = new(request.serverurl, id);
