@@ -61,6 +61,11 @@ class Federation
         id = fid;
     }
 
+    /// <summary>
+    /// Gets cached events that wasn't sent in a chat
+    /// </summary>
+    /// <param name="chatid">ID of the chat.</param>
+    /// <returns>List of event-type dictionaries.</returns>
     List<Dictionary<string, object?>> getCachedUpdates(string chatid)
     {
         if (cachedUpdates.ContainsKey(chatid))
@@ -84,17 +89,24 @@ class Federation
         }
     }
 
+
+    /// <summary>
+    /// Handles error status from request responses.
+    /// </summary>
+    /// <param name="status">Dictionary from a failled request response. Needs to have "code" key.</param>
     void handleStatus(Dictionary<string,object> status) {
         switch (status["code"].ToString())
         {
             case "IDWRONG":
-                Console.WriteLine("Peer has error, marking as disconnected.");
+                Console.WriteLine("Peer has error, reconnecting...");
                 connected = false;
+                _ = reconnect(); // We don't need response of this.
                 break;
             
             case "NOFED":
-                Console.WriteLine("Peer has error, marking as disconnected.");
+                Console.WriteLine("Peer has error, reconnecting...");
                 connected = false;
+                _ = reconnect(); // We don't need response of this.
                 break;
         }
     }
@@ -112,7 +124,7 @@ class Federation
         if (updates != null)
         {
             updatesToSend.AddRange(updates);
-            clonedUpdates = new(updates);
+            clonedUpdates = new(updates); // Clone the updates before the reference at (Chat)pushUpdate will make it empty.
         }
 
 
@@ -123,11 +135,13 @@ class Federation
             string resbody = await request.Content.ReadAsStringAsync();
             Console.WriteLine("push " + resbody);
             var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
-            if (ret == null) return;
-            if (ret.ContainsKey("status"))
-            {
-                handleStatus(ret);
-            }
+            if (ret != null)
+                if (ret.ContainsKey("status"))
+                {
+                    handleStatus(ret);
+                    return;
+                }
+            getCachedUpdates(chatid).Clear();
         }
         catch (Exception e)
         {
@@ -201,6 +215,8 @@ class Federation
     public async Task<bool> reconnect()
     {
         if (connected == true) return true;
+        await Task.Delay(1000);
+        if (connected == true) return true;
         if (connected == null)
         {
             while (connect == null)
@@ -228,6 +244,12 @@ class Federation
             connected = false;
             return false;
         }
+    }
+    public void fedRequestReconnected(string fid)
+    {
+        id = fid;
+        connected = true;
+        Connected?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>

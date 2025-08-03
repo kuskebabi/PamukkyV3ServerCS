@@ -2289,12 +2289,20 @@ item.info = profileShort.fromGroup(p);
                                 try
                                 {
                                     var httpTask = await Federation.GetHttpClient().GetAsync(request.serverurl);
+                                    Console.WriteLine("federationrequest/pingpong " + await httpTask.Content.ReadAsStringAsync());
                                     // Valid, allow to federate
                                     string id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
-                                    Federation fed = new(request.serverurl, id);
-                                    Federation.federations[request.serverurl] = fed;
+                                    if (Federation.federations.ContainsKey(request.serverurl))
+                                    {
+                                        Federation.federations[request.serverurl].fedRequestReconnected(id);
+                                    }
+                                    else
+                                    {
+                                        Federation fed = new(request.serverurl, id);
+                                        Federation.federations[request.serverurl] = fed;
+                                    }
                                     statuscode = 200;
-                                    res = JsonConvert.SerializeObject(fed); //return info
+                                    res = JsonConvert.SerializeObject(Federation.federations[request.serverurl]); //return info
                                 }
                                 catch (Exception e)
                                 {

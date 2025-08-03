@@ -1001,30 +1001,26 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 connection.Connected += async (_,_) =>
                 {
                     Chat? newChat = await connection.getChat(id);
-                    if (newChat != null)
+                    if (newChat != null && loadedChat != null)
                     {
-                        newChat.chatID = chat;
-                        newChat.isGroup = !chat.Contains("-");
-                        newChat.newID = DateTime.Now.Ticks;
-                        if (newChat.isGroup)
+                        // Remake the chat with new fetched chat. Probably would be better if updates were fetched instead... works for now, tho.
+                        loadedChat.Clear();
+                        foreach (var msg in newChat)
+                            loadedChat.TryAdd(msg.Key, msg.Value);
+
+                        if (loadedChat.pinnedMessages == null)
                         {
-                            // Load the real group
-                            Group? group = await Group.Get(chat);
-                            if (group != null)
-                            {
-                                newChat.group = group;
-                            }
+                            loadedChat.pinnedMessages = new() { chatID = chat, mainchat = loadedChat };
                         }
 
-                        newChat.pinnedMessages = new() { chatID = chat, mainchat = loadedChat };
+                        loadedChat.pinnedMessages.Clear();
                         foreach (var kv in newChat)
                         {
                             if (kv.Value.pinned)
                             {
-                                newChat.pinnedMessages[kv.Key] = kv.Value;
+                                loadedChat.pinnedMessages[kv.Key] = kv.Value;
                             }
                         }
-                        chatsCache[chat] = newChat;
                     }
                 };
             }
