@@ -341,7 +341,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 }
                 else
                 {
-                    i += 1;
+                    ++i;
                 }
             }
         }
@@ -358,7 +358,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 }
                 else
                 {
-                    i += 1;
+                    ++i;
                 }
             }
         }
@@ -375,7 +375,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 }
                 else
                 {
-                    i += 1;
+                    ++i;
                 }
             }
         }
@@ -392,11 +392,11 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 }
                 else
                 {
-                    i += 1;
+                    ++i;
                 }
             }
         }
-        newID += 1;
+        ++newID;
         updates[newID] = update;
 
         var formattedUpdate = formatUpdate(update);
@@ -768,7 +768,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                     userConfig? uc = await userConfig.Get(member);
                     if (uc != null && !uc.mutedChats.Contains(chatID))
                     {
-                        Notifications.Get(member)[id] = notification;
+                        Notifications.Get(member).AddNotification(notification);
                     }
                 }
             }

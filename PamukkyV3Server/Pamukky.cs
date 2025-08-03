@@ -592,7 +592,7 @@ item.info = profileShort.fromGroup(p);
                 if (uid != null)
                 {
                     //Console.WriteLine(JsonConvert.SerializeObject(notifications));
-                    var usernotifies = Notifications.Get(uid);
+                    var usernotifies = Notifications.Get(uid).GetNotifications(a["token"]);
                     if (a.ContainsKey("mode") && a["mode"] == "hold" && usernotifies.Count == 0) // Hold mode means that if there isn't any notifications, wait for one until a timeout.
                     {
                         int wait = 20; // How long will this wait for notification to appear
@@ -603,20 +603,7 @@ item.info = profileShort.fromGroup(p);
                         }
                     }
                     res = JsonConvert.SerializeObject(usernotifies);
-                    List<string> keys = new();
-                    foreach (string key in usernotifies.Keys)
-                    {
-                        keys.Add(key);
-                    }
-#pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
-                    Task.Delay(10000).ContinueWith((task) =>
-                    { //remove notifications after delay so all clients can see it before it's too late. SSSOOOOBBB
-                        foreach (string key in keys)
-                        {
-                            usernotifies.Remove(key, out _);
-                        }
-                    });
-#pragma warning restore CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
+                    usernotifies.Clear();
                 }
                 else
                 {

@@ -6,21 +6,51 @@ namespace PamukkyV3;
 /// <summary>
 /// Class to hold all of notifications.
 /// </summary>
-class Notifications : ConcurrentDictionary<string, ConcurrentDictionary<string, messageNotification>>
+class Notifications : ConcurrentDictionary<string, UserNotifications>
 {
     public static Notifications notifications = new();
     /// <summary>
     /// Gets notifications of a user.
     /// </summary>
     /// <param name="userID">ID of the user.</param>
-    /// <returns>Notifications dictionary.</returns>
-    public static ConcurrentDictionary<string, messageNotification> Get(string userID)
+    /// <returns>UserNotifications of the user.</returns>
+    public static UserNotifications Get(string userID)
     {
         if (!notifications.ContainsKey(userID))
         {
             notifications[userID] = new();
         }
         return notifications[userID];
+    }
+}
+
+/// <summary>
+/// Class to hold notifications of a user.
+/// </summary>
+class UserNotifications : ConcurrentDictionary<string, messageNotification>
+{
+    [JsonIgnore]
+    public Dictionary<string, UserNotifications> notificationsForDevices = new();
+
+
+    /// <summary>
+    /// Gets notifications for a specific device.
+    /// </summary>
+    /// <param name="token">Token of login</param>
+    /// <returns>UserNotifications that the device didn't recieve.</returns>
+    public UserNotifications GetNotifications(string token)
+    {
+        if (!notificationsForDevices.ContainsKey(token)) notificationsForDevices[token] = new();
+        return notificationsForDevices[token];
+    }
+
+    public void AddNotification(messageNotification notif)
+    {
+        string key = DateTime.Now.Ticks.ToString();
+        foreach (UserNotifications deviceNotifications in notificationsForDevices.Values)
+        {
+            deviceNotifications[key] = notif;
+        }
     }
 }
 
