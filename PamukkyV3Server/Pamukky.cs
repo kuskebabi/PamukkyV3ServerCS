@@ -595,7 +595,7 @@ item.info = profileShort.fromGroup(p);
                     var usernotifies = Notifications.Get(uid).GetNotifications(a["token"]);
                     if (a.ContainsKey("mode") && a["mode"] == "hold" && usernotifies.Count == 0) // Hold mode means that if there isn't any notifications, wait for one until a timeout.
                     {
-                        int wait = 20; // How long will this wait for notification to appear
+                        int wait = 60; // How many seconds will this wait for notification to appear
                         while (usernotifies.Count == 0 && wait > 0)
                         {
                             await Task.Delay(1000);
@@ -622,41 +622,61 @@ item.info = profileShort.fromGroup(p);
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("ids") && a["ids"] is JArray)
             {
-                UpdateHooks updhooks = Updaters.Get(a["token"].ToString() ?? "");
+                string token = a["token"].ToString() ?? "";
+                UpdateHooks updhooks = Updaters.Get(token);
                 foreach (string? hid in (JArray)a["ids"])
                 {
                     if (hid == null) continue;
-
-                    string[] split = hid.Split(":", 2);
-                    string type = split[0];
-                    string id = split[1];
-                    switch (type)
+                    if (hid.Contains(":"))
                     {
-                        case "chat":
-                            Chat? chat = await Chat.getChat(id);
-                            if (chat != null)
-                            {
-                                updhooks.AddHook(chat);
-                            }
-                            else
-                            {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
-                            }
-                            break;
-                        
-                        case "user":
-                            UserProfile? user = await UserProfile.Get(id);
-                            if (user != null)
-                            {
-                                updhooks.AddHook(user);
-                            }
-                            else
-                            {
-                                statuscode = 404;
-                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
-                            }
-                            break;
+                        string[] split = hid.Split(":", 2);
+                        string type = split[0];
+                        string id = split[1];
+                        switch (type)
+                        {
+                            case "chat":
+                                Chat? chat = await Chat.getChat(id);
+                                if (chat != null)
+                                {
+                                    updhooks.AddHook(chat);
+                                }
+                                else
+                                {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                                }
+                                break;
+
+                            case "user":
+                                UserProfile? user = await UserProfile.Get(id);
+                                if (user != null)
+                                {
+                                    updhooks.AddHook(user);
+                                }
+                                else
+                                {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        switch (hid) {
+                            case "chatslist":
+                                UserChatsList? chatsList = await UserChatsList.Get(await GetUIDFromToken(token) ?? "");
+                                if (chatsList != null)
+                                {
+                                    updhooks.AddHook(chatsList);
+                                }
+                                else
+                                {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
+                                }
+                                break;
+                        }
                     }
                 }
             }

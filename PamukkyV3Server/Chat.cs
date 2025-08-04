@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 
 namespace PamukkyV3;
@@ -281,7 +282,10 @@ class Chat : OrderedDictionary<string, ChatMessage>
             typingUsers.Add(uid);
             foreach (UpdateHook hook in updateHooks)
             {
-                hook["TYPING"] = typingUsers;
+                if (group.canDo(hook.uid, Group.groupAction.Read))
+                {
+                    hook["TYPING"] = typingUsers;
+                }
             }
         }
     }
@@ -292,7 +296,10 @@ class Chat : OrderedDictionary<string, ChatMessage>
         {
             foreach (UpdateHook hook in updateHooks)
             {
-                hook["TYPING"] = typingUsers;
+                if (group.canDo(hook.uid, Group.groupAction.Read))
+                {
+                    hook["TYPING"] = typingUsers;
+                }
             }
         }
     }
@@ -402,7 +409,10 @@ class Chat : OrderedDictionary<string, ChatMessage>
         var formattedUpdate = formatUpdate(update);
         foreach (UpdateHook hook in updateHooks)
         {
-            hook[newID.ToString()] = formattedUpdate;
+            if (group.canDo(hook.uid, Group.groupAction.Read))
+            {
+                hook[newID.ToString()] = formattedUpdate;
+            }
         }
 
         if (push) pushUpdate(update);

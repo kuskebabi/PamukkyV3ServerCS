@@ -393,7 +393,13 @@ class ShortProfile
 class UserChatsList : List<chatItem>
 {
     public static ConcurrentDictionary<string, UserChatsList> userChatsCache = new();
+    /// <summary>
+    /// User ID of who owns this list.
+    /// </summary>
     public string userID = "";
+
+    public List<UpdateHook> hooks = new();
+
     public static async Task<UserChatsList?> Get(string userID)
     { // Get chats list
         if (userChatsCache.ContainsKey(userID))
@@ -442,6 +448,11 @@ class UserChatsList : List<chatItem>
         }
 
         Add(item);
+
+        foreach (UpdateHook hook in hooks) // Notify new chat item to hooks
+        {
+            hook[item.chatid ?? item.group ?? ""] = item;
+        }
     }
 
     /// <summary>
@@ -451,7 +462,14 @@ class UserChatsList : List<chatItem>
     public void RemoveChat(string chatID)
     { //Remove from chats list
         var itm = this.Where(i => (i.chatid ?? i.group ?? "") == chatID).FirstOrDefault();
-        if (itm != null) Remove(itm);
+        if (itm != null)
+        {
+            Remove(itm);
+            foreach (UpdateHook hook in hooks) // Notify deleted chat item to hooks
+            {
+                hook[itm.chatid ?? itm.group ?? ""] = "DELETED";
+            }
+        }
     }
 
     public void Save()
@@ -477,9 +495,18 @@ class chatItem
     public ChatMessage? lastmessage = null;
 }
 
-class UpdateHook : ConcurrentDictionary<string, object?> {}
+class UpdateHook : ConcurrentDictionary<string, object?>
+{
+    /// <summary>
+    /// User ID of the owner of this hook.
+    /// </summary>
+    public string uid = "";
+}
 class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
 {
+    /// <summary>
+    /// Token of the user that owns these hooks.
+    /// </summary>
     public string token;
 
     public UpdateHooks(string userToken)
@@ -514,9 +541,9 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
     /// Waits for new updates to happen or timeout and returns them.
     /// </summary>
     /// <param name="userToken">Token of the client..</param>
-    /// <param name="maxWait">How long should it wait before giving up? each count adds 250ms more.</param>
+    /// <param name="maxWait">How long should it wait before giving up? each count adds 250ms more. Default is a minute.</param>
     /// <returns>All update hooks</returns>
-    public async Task<UpdateHooks> waitForUpdates(int maxWait = 80)
+    public async Task<UpdateHooks> waitForUpdates(int maxWait = 240)
     {
 
         int wait = maxWait;
@@ -535,7 +562,7 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
     /// <summary>
     /// Adds a update hook for a client
     /// </summary>
-    /// <param name="target">Can be Chat and UserProfile</param>
+    /// <param name="target">Can be Chat, UserProfile and UserChatsList.</param>
     public async void AddHook(object target)
     {
         string hookName;
@@ -548,24 +575,39 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
         {
             hookName = "user:" + ((UserProfile)target).userID;
         }
+        else if (target is UserChatsList)
+        {
+            hookName = "chatslist";
+        }
         else
         {
-            throw new InvalidCastException("target only can be Chat or UserProfile.");
+            throw new InvalidCastException("target only can be Chat, UserProfile or UserChatsList.");
         }
 
-        UpdateHook hook = new();
+        if (ContainsKey(hookName)) return; //Don't do duplicates.
+
+        string uid = await Pamukky.GetUIDFromToken(token) ?? "";
+        UpdateHook hook = new() {uid = uid};
         this[hookName] = hook;
 
         if (target is Chat)
         {
             Chat chat = (Chat)target;
-            if (chat.canDo(await Pamukky.GetUIDFromToken(token) ?? "", Chat.chatAction.Read))
+            if (chat.canDo(uid, Chat.chatAction.Read))
                 chat.updateHooks.Add(hook);
         }
         else if (target is UserProfile)
         {
             UserProfile profile = (UserProfile)target;
             profile.updateHooks.Add(hook);
+        }
+        else if (target is UserChatsList)
+        {
+            UserChatsList chatsList = (UserChatsList)target;
+            if (chatsList.userID == uid) // This check is kinda useless as you can't really select which user to and its always current one.
+            {
+                chatsList.hooks.Add(hook);
+            }
         }
     }
 }
