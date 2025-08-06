@@ -489,10 +489,6 @@ class chatItem
     // Optional because depends on it's type.
     public string? user = null;
     public string? group = null;
-
-    //for preview at chats list.
-    //public profileShort? info = null;
-    public ChatMessage? lastmessage = null;
 }
 
 class UpdateHook : ConcurrentDictionary<string, object?>

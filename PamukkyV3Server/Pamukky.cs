@@ -539,31 +539,7 @@ internal class Pamukky
                     List<chatItem>? chats = await UserChatsList.Get(uid);
                     if (chats != null)
                     {
-                        foreach (chatItem item in chats)
-                        { //Format chats for clients
-                            /*if (item.type == "user") { //Info
-                                *                           var p = userProfile.Get(item.user ?? "");
-                                *                           item.info = profileShort.fromProfile(p);
-                        }else if (item.type == "group") {
-                            var p = Group.get(item.group ?? "");
-item.info = profileShort.fromGroup(p);
-                        }*/
-
-                            Chat? chat = await Chat.getChat(item.chatid ?? item.group ?? "");
-                            if (chat != null)
-                            {
-                                if (chat.canDo(uid, Chat.chatAction.Read))
-                                { //Check for read permission before giving the last message
-                                    item.lastmessage = chat.getLastMessage(true);
-                                }
-                            }
-                        }
                         res = JsonConvert.SerializeObject(chats);
-                        foreach (chatItem item in chats)
-                        {
-                            //item.info = null;
-                            item.lastmessage = null;
-                        }
                     }
                     else
                     {
