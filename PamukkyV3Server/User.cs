@@ -537,9 +537,9 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
     /// Waits for new updates to happen or timeout and returns them.
     /// </summary>
     /// <param name="userToken">Token of the client..</param>
-    /// <param name="maxWait">How long should it wait before giving up? each count adds 250ms more. Default is a minute.</param>
+    /// <param name="maxWait">How long should it wait before giving up? each count adds 100ms more. Default is a minute.</param>
     /// <returns>All update hooks</returns>
-    public async Task<UpdateHooks> waitForUpdates(int maxWait = 240)
+    public async Task<UpdateHooks> waitForUpdates(int maxWait = 600)
     {
 
         int wait = maxWait;
@@ -547,7 +547,7 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
 
         while (updates.Count == 0 && wait > 0)
         {
-            await Task.Delay(250);
+            await Task.Delay(100);
             updates = GetNewUpdates();
             --wait;
         }
@@ -580,7 +580,11 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
             throw new InvalidCastException("target only can be Chat, UserProfile or UserChatsList.");
         }
 
-        if (ContainsKey(hookName)) return; //Don't do duplicates.
+        if (ContainsKey(hookName))
+        { //Don't do duplicates.
+            this[hookName].Clear(); // Clear the hook.
+            return;
+        }
 
         string uid = await Pamukky.GetUIDFromToken(token) ?? "";
         UpdateHook hook = new() {uid = uid};

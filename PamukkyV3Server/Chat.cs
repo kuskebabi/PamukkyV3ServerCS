@@ -201,7 +201,10 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// Dictionary to hold chats.
     /// </summary>
     public static ConcurrentDictionary<string, Chat> chatsCache = new();
-
+    /// <summary>
+    /// List to hold IDs of loading chats so it waits for them.
+    /// </summary>
+    public static List<string> loadingChats = new();
 
 
     /// <summary>
@@ -282,7 +285,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
             typingUsers.Add(uid);
             foreach (UpdateHook hook in updateHooks)
             {
-                if (group.canDo(hook.uid, Group.groupAction.Read))
+                if (canDo(hook.uid, chatAction.Read))
                 {
                     hook["TYPING"] = typingUsers;
                 }
@@ -296,7 +299,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
         {
             foreach (UpdateHook hook in updateHooks)
             {
-                if (group.canDo(hook.uid, Group.groupAction.Read))
+                if (canDo(hook.uid, chatAction.Read))
                 {
                     hook["TYPING"] = typingUsers;
                 }
@@ -409,7 +412,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
         var formattedUpdate = formatUpdate(update);
         foreach (UpdateHook hook in updateHooks)
         {
-            if (group.canDo(hook.uid, Group.groupAction.Read))
+            if (canDo(hook.uid, chatAction.Read))
             {
                 hook[newID.ToString()] = formattedUpdate;
             }
@@ -913,17 +916,15 @@ class Chat : OrderedDictionary<string, ChatMessage>
     {
         if (action == chatAction.Read && group.publicgroup) return true;
 
-        bool contains = false;
         GroupMember? u = null;
         foreach (var member in group.members)
         { //find the user
             if (member.Value.user == user)
             {
-                contains = true;
                 u = member.Value;
             }
         }
-        if (!contains || u == null)
+        if (u == null)
         { // Doesn't exist? block
             return false;
         }
@@ -958,18 +959,26 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <summary>
     /// Gets/Loads the chat.
     /// </summary>
-    /// <param name="chat">ID of the chat.</param>
+    /// <param name="chatID">ID of the chat.</param>
     /// <returns>Chat if succeeded, null if invalid/failled.</returns>
-    public static async Task<Chat?> getChat(string chat)
+    public static async Task<Chat?> getChat(string chatID)
     {
-        if (chatsCache.ContainsKey(chat))
+        if (loadingChats.Contains(chatID))
         {
-            return chatsCache[chat];
+            while (loadingChats.Contains(chatID))
+            {
+                await Task.Delay(500);
+            }
         }
+        if (chatsCache.ContainsKey(chatID))
+        {
+            return chatsCache[chatID];
+        }
+
         //Check validity
-        if (chat.Contains("-"))
+        if (chatID.Contains("-"))
         { //both users should exist
-            string[] spl = chat.Split("-");
+            string[] spl = chatID.Split("-");
             if (!File.Exists("data/info/" + spl[0] + "/profile"))
             {
                 return null;
@@ -981,27 +990,29 @@ class Chat : OrderedDictionary<string, ChatMessage>
         }
         else
         {
-            if (!File.Exists("data/info/" + chat + "/info"))
+            if (!File.Exists("data/info/" + chatID + "/info"))
             {
                 return null;
             }
         }
 
+        loadingChats.Add(chatID);
+
         //Load
         Chat? loadedChat = null;
-        if (File.Exists("data/chat/" + chat + "/chat"))
+        if (File.Exists("data/chat/" + chatID + "/chat"))
         {
-            loadedChat = JsonConvert.DeserializeObject<Chat>(await File.ReadAllTextAsync("data/chat/" + chat + "/chat"));
+            loadedChat = JsonConvert.DeserializeObject<Chat>(await File.ReadAllTextAsync("data/chat/" + chatID + "/chat"));
             // If that is null, we should NOT load the chat at all
         }
         else
         {
-            if (!chat.Contains("@")) loadedChat = new Chat();
+            if (!chatID.Contains("@")) loadedChat = new Chat();
         }
 
-        if (chat.Contains("@"))
+        if (chatID.Contains("@"))
         {
-            string[] split = chat.Split("@");
+            string[] split = chatID.Split("@");
             string id = split[0];
             string server = split[1];
             var connection = await Federation.connect(server, true);
@@ -1020,7 +1031,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
 
                         if (loadedChat.pinnedMessages == null)
                         {
-                            loadedChat.pinnedMessages = new() { chatID = chat, mainchat = loadedChat };
+                            loadedChat.pinnedMessages = new() { chatID = chatID, mainchat = loadedChat };
                         }
 
                         loadedChat.pinnedMessages.Clear();
@@ -1038,24 +1049,25 @@ class Chat : OrderedDictionary<string, ChatMessage>
 
         if (loadedChat != null)
         {
-            if (File.Exists("data/chat/" + chat + "/updates"))
+            if (File.Exists("data/chat/" + chatID + "/updates"))
             {
                 try
                 {
-                    var u = JsonConvert.DeserializeObject<ConcurrentDictionary<long, Dictionary<string, object?>>>(await File.ReadAllTextAsync("data/chat/" + chat + "/updates"));
+                    var u = JsonConvert.DeserializeObject<ConcurrentDictionary<long, Dictionary<string, object?>>>(await File.ReadAllTextAsync("data/chat/" + chatID + "/updates"));
                     if (u != null) loadedChat.updates = u;
                 }
                 catch { } //Ignore...
             }
-            loadedChat.chatID = chat;
-            loadedChat.isGroup = !chat.Contains("-");
+            loadedChat.chatID = chatID;
+            loadedChat.isGroup = !chatID.Contains("-");
             loadedChat.newID = DateTime.Now.Ticks;
             if (loadedChat.isGroup)
             {
                 // Load the real group
-                Group? group = await Group.Get(chat);
+                Group? group = await Group.Get(chatID);
                 if (group == null)
                 {
+                    loadingChats.Remove(chatID);
                     return null;
                 }
                 loadedChat.group = group;
@@ -1063,14 +1075,14 @@ class Chat : OrderedDictionary<string, ChatMessage>
             else
             {
                 // Make a fake group
-                string[] users = chat.Split("-");
+                string[] users = chatID.Split("-");
                 foreach (string user in users)
                 {
                     loadedChat.group.members[user] = new GroupMember() { user = user };
                 }
             }
 
-            loadedChat.pinnedMessages = new() { chatID = chat, mainchat = loadedChat };
+            loadedChat.pinnedMessages = new() { chatID = chatID, mainchat = loadedChat };
             foreach (var kv in loadedChat)
             {
                 if (kv.Value.pinned)
@@ -1078,8 +1090,10 @@ class Chat : OrderedDictionary<string, ChatMessage>
                     loadedChat.pinnedMessages[kv.Key] = kv.Value;
                 }
             }
-            chatsCache[chat] = loadedChat;
+            chatsCache[chatID] = loadedChat;
         }
+
+        loadingChats.Remove(chatID);
         return loadedChat;
     }
 

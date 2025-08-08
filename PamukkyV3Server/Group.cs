@@ -12,6 +12,7 @@ class Group
     public string groupID = "";
     [JsonIgnore]
     public static ConcurrentDictionary<string, Group> groupsCache = new();
+    public static List<string> loadingGroups = new();
 
     public string name = "";
     public string picture = "";
@@ -25,10 +26,19 @@ class Group
 
     public static async Task<Group?> Get(string gid)
     {
+        if (loadingGroups.Contains(gid))
+        {
+            while (loadingGroups.Contains(gid))
+            {
+                await Task.Delay(500);
+            }
+        }
         if (groupsCache.ContainsKey(gid))
         {
             return groupsCache[gid];
         }
+        loadingGroups.Add(gid);
+
         if (gid.Contains("@"))
         {
             string[] split = gid.Split("@");
@@ -47,22 +57,26 @@ class Group
                         groupsCache[gid] = group;
                         group.Save(); // Save the group from the federation in case it goes offline after some time.
 
+                        loadingGroups.Remove(gid);
+
                         return group;
                     }
                     else if (g is bool)
                     {
                         if ((bool)g)
                         {
+                            loadingGroups.Remove(gid);
                             return new Group() { groupID = gid }; //make a interface enough to join it.
                         }
                         else
                         {
+                            loadingGroups.Remove(gid);
                             return null;
                         }
                     }
                 }
                 connection.Connected += async (_, _) =>
-                { 
+                {
                     var g = await connection.getGroup(id);
                     if (g is Group)
                     {
@@ -82,8 +96,10 @@ class Group
                 g.groupID = gid;
                 groupsCache[gid] = g;
             }
+            loadingGroups.Remove(gid);
             return g;
         }
+        loadingGroups.Remove(gid);
         return null;
     }
 
@@ -277,23 +293,16 @@ class Group
     {
         if (action == groupAction.Read && publicgroup) return true;
 
-        bool contains = false;
         GroupMember? u = null;
-        GroupMember? tu = null;
         foreach (var member in members)
         { //find the user
             if (member.Value.user == user)
             {
-                contains = true;
                 u = member.Value;
-            }
-            if (member.Value.user == target)
-            {
-                tu = member.Value;
             }
         }
 
-        if (!contains || u == null)
+        if (u == null)
         { // Doesn't exist? block
             return false;
         }
@@ -304,12 +313,13 @@ class Group
         //Check what the role can do depending on the request.
 
         if (action == groupAction.EditGroup) return role.AllowEditingSettings;
-        if (tu != null)
+
+        GroupRole? targetUserRole = getUserRole(target ?? "");
+        if (targetUserRole != null)
         {
-            GroupRole trole = roles[tu.role];
-            if (action == groupAction.EditUser) return role.AllowEditingUsers && role.AdminOrder <= trole.AdminOrder;
-            if (action == groupAction.Kick) return role.AllowKicking && role.AdminOrder < trole.AdminOrder;
-            if (action == groupAction.Ban) return role.AllowBanning && role.AdminOrder < trole.AdminOrder;
+            if (action == groupAction.EditUser) return role.AllowEditingUsers && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
+            if (action == groupAction.Kick) return role.AllowKicking && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
+            if (action == groupAction.Ban) return role.AllowBanning && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
         }
         else
         {
@@ -359,9 +369,47 @@ class Group
     /// </summary>
     public void Save()
     {
+        checkRoles();
         Directory.CreateDirectory("data/info/" + groupID);
         string c = JsonConvert.SerializeObject(this);
         File.WriteAllTextAsync("data/info/" + groupID + "/info", c);
+    }
+
+    /// <summary>
+    /// Checks if nobody has owner role and sets a user as owner automatically.
+    /// </summary>
+    public void checkRoles()
+    {
+        GroupMember? bestMatch = null;
+
+        foreach (var member in members.Values)
+        {
+            if (getUserRole(member.user)?.AdminOrder == 0)
+            {
+                // Stop it if there is a owner already.
+                return;
+            }
+        }
+
+        foreach (var member in members.Values)
+        {
+            if (member.user == owner)
+            {
+                // If the member is the original owner, give the role to them first.
+                bestMatch = member;
+                break;
+            }
+            if (bestMatch == null || getUserRole(member.user)?.AdminOrder > getUserRole(bestMatch.user)?.AdminOrder)
+            {
+                // Basically try to find the user with highest role.
+                bestMatch = member;
+            }
+        }
+
+        if (bestMatch != null)
+        {
+            bestMatch.role = "Owner";
+        }
     }
 }
 
