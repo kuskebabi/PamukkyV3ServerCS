@@ -13,6 +13,16 @@ class federationRequest
 }
 
 /// <summary>
+/// Federation update sending style to parse.
+/// </summary>
+class UpdateRecieveRequest
+{
+    public string? serverurl = null;
+    public string? id = null;
+    public UpdateHooks? updates = null;
+}
+
+/// <summary>
 /// Logic for federation in Pamukky. Currently it's WIP and you shouldn't really use it.
 /// </summary>
 class Federation
@@ -32,7 +42,7 @@ class Federation
     [JsonIgnore]
     public bool? connected = true;
     [JsonIgnore]
-    public ConcurrentDictionary<string, List<Dictionary<string, object?>>> cachedUpdates = new();
+    public UpdateHooks cachedUpdates;
 
     public string serverURL;
     public string id;
@@ -59,21 +69,8 @@ class Federation
     {
         serverURL = server;
         id = fid;
-    }
-
-    /// <summary>
-    /// Gets cached events that wasn't sent in a chat
-    /// </summary>
-    /// <param name="chatid">ID of the chat.</param>
-    /// <returns>List of event-type dictionaries.</returns>
-    List<Dictionary<string, object?>> getCachedUpdates(string chatid)
-    {
-        if (cachedUpdates.ContainsKey(chatid))
-        {
-            return cachedUpdates[chatid];
-        }
-        cachedUpdates[chatid] = new();
-        return cachedUpdates[chatid];
+        cachedUpdates = new() { token = server };
+        pushUpdates();
     }
 
     /// <summary>
@@ -94,7 +91,8 @@ class Federation
     /// Handles error status from request responses.
     /// </summary>
     /// <param name="status">Dictionary from a failled request response. Needs to have "code" key.</param>
-    void handleStatus(Dictionary<string,object> status) {
+    void handleStatus(Dictionary<string, object> status)
+    {
         switch (status["code"].ToString())
         {
             case "IDWRONG":
@@ -102,7 +100,7 @@ class Federation
                 connected = false;
                 _ = reconnect(); // We don't need response of this.
                 break;
-            
+
             case "NOFED":
                 Console.WriteLine("Peer has error, reconnecting...");
                 connected = false;
@@ -113,43 +111,35 @@ class Federation
     /// <summary>
     /// Pushes chat updates to remote servers, acting like a client for them.
     /// </summary>
-    /// <param name="chatid">Chat ID for remote</param>
-    /// <param name="updates">List of updates. Values of updates dictionary can be used.</param>
-    public async void pushChatUpdates(string chatid, List<Dictionary<string, object?>>? updates = null)
+    public async void pushUpdates()
     {
-        await reconnect();
-        List<Dictionary<string, object?>> clonedUpdates = new();
-        List<Dictionary<string, object?>> updatesToSend = new(getCachedUpdates(chatid));
-
-        if (updates != null)
+        //Console.WriteLine("pushtick");
+        if (await reconnect())
         {
-            updatesToSend.AddRange(updates);
-            clonedUpdates = new(updates); // Clone the updates before the reference at (Chat)pushUpdate will make it empty.
-        }
+            UpdateHooks updates = await cachedUpdates.waitForUpdates();
 
 
-        StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, updates = updatesToSend, chatid = chatid }));
-        try
-        {
-            var request = await GetHttpClient().PostAsync(new Uri(new Uri(serverURL), "federationrecievechatupdates"), sc);
-            string resbody = await request.Content.ReadAsStringAsync();
-            Console.WriteLine("push " + resbody);
-            var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
-            if (ret != null)
-                if (ret.ContainsKey("status"))
-                {
-                    handleStatus(ret);
-                    return;
-                }
-            getCachedUpdates(chatid).Clear();
+            StringContent sc = new(JsonConvert.SerializeObject(new UpdateRecieveRequest() { serverurl = thisServerURL, id = id, updates = updates }));
+            try
+            {
+                var request = await GetHttpClient().PostAsync(new Uri(new Uri(serverURL), "federationrecieveupdates"), sc);
+                string resbody = await request.Content.ReadAsStringAsync();
+                Console.WriteLine("push " + resbody);
+                var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
+                if (ret != null)
+                    if (ret.ContainsKey("status"))
+                    {
+                        handleStatus(ret);
+                        return;
+                    }
+            }
+            catch (Exception e)
+            {
+                handleException(e);
+                Console.WriteLine(e.ToString());
+            }
         }
-        catch (Exception e)
-        {
-            handleException(e);
-            // On error add them to the updates list and let the other pushChatUpdates try again.
-            getCachedUpdates(chatid).AddRange(clonedUpdates);
-            Console.WriteLine(e.ToString());
-        }
+        pushUpdates();
     }
 
     /// <summary>
@@ -180,7 +170,7 @@ class Federation
         }
 
         connectingFederations.Add(server);
-        
+
         StringContent sc = new(JsonConvert.SerializeObject(new federationRequest() { serverurl = thisServerURL }));
         try
         {
@@ -206,6 +196,52 @@ class Federation
             }
             return null;
         }
+    }
+
+    /// <summary>
+    /// Gets a federation from request dictionary if it's valid.
+    /// </summary>
+    /// <param name="request">Request dictionary</param>
+    /// <returns>Federation if success, null if mismatch.</returns>
+    public static Federation? getFromRequestObjDict(IDictionary<string, object> request)
+    {
+        if (!request.ContainsKey("serverurl")) return null;
+        if (!request.ContainsKey("id")) return null;
+        if (!federations.ContainsKey(request["serverurl"].ToString() ?? "")) return null;
+        Federation fed = federations[request["serverurl"].ToString() ?? ""];
+        if (fed.id != request["id"].ToString()) return null;
+        return fed;
+    }
+    
+    /// <summary>
+    /// Gets a federation from request dictionary if it's valid.
+    /// </summary>
+    /// <param name="request">Request dictionary</param>
+    /// <returns>Federation if success, null if mismatch.</returns>
+    public static Federation? getFromRequestStrDict(IDictionary<string, string> request)
+    {
+        if (!request.ContainsKey("serverurl")) return null;
+        if (!request.ContainsKey("id")) return null;
+        if (!federations.ContainsKey(request["serverurl"] ?? "")) return null;
+        Federation fed = federations[request["serverurl"] ?? ""];
+        if (fed.id != request["id"]) return null;
+        return fed;
+    }
+
+    /// <summary>
+    /// Gets a federation from request that is styled as (and is) UpdateRecieveRequest if it's valid.
+    /// </summary>
+    /// <param name="request">UpdateRecieveRequest which was parsed from the request.</param>
+    /// <returns>Federation if success, null if mismatch.</returns>
+
+    public static Federation? getFromRequestURR(UpdateRecieveRequest request)
+    {
+        if (request.serverurl == null) return null;
+        if (request.id == null) return null;
+        if (!federations.ContainsKey(request.serverurl ?? "")) return null;
+        Federation fed = federations[request.serverurl ?? ""];
+        if (fed.id != request.id) return null;
+        return fed;
     }
 
     /// <summary>
@@ -259,7 +295,8 @@ class Federation
     /// <returns>Null if request failled, false if group doesn't exist, true if group exists but it's only viewable for members, Group class if it exists and is visible for this server.</returns>
     public async Task<object?> getGroup(string groupID)
     {
-        await reconnect();
+        if (!await reconnect()) return null;
+
         StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, groupid = groupID }));
         try
         {
@@ -305,7 +342,8 @@ class Federation
     /// <returns>True if joined, false if couldn't</returns>
     public async Task<bool> joinGroup(string userID, string groupID)
     {
-        await reconnect();
+        if (!await reconnect()) return false;
+
         StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, groupid = groupID, userid = userID }));
         try
         {
@@ -347,7 +385,8 @@ class Federation
     /// <returns></returns>
     public async Task<bool> leaveGroup(string userID, string groupID)
     {
-        await reconnect();
+        if (!await reconnect()) return false;
+
         StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, groupid = groupID, userid = userID }));
         try
         {
@@ -388,7 +427,8 @@ class Federation
     /// <returns>Chat if done, null if fail.</returns>
     public async Task<Chat?> getChat(string chatID)
     {
-        await reconnect();
+        if (!await reconnect()) return null;
+
         StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, chatid = chatID }));
         try
         {
@@ -407,10 +447,12 @@ class Federation
                 Chat? chat = JsonConvert.DeserializeObject<Chat>(resbody);
                 if (chat == null) return null;
                 chat.connectedFederations.Add(this);
+                chat.chatID = chatID;
                 foreach (ChatMessage msg in chat.Values)
                 {
                     fixMessage(msg);
                 }
+                cachedUpdates.AddHook(chat);
                 return chat;
             }
         }
@@ -429,7 +471,8 @@ class Federation
     /// <returns></returns>
     public async Task<UserProfile?> getUser(string userID)
     {
-        await reconnect();
+        if (!await reconnect()) return null;
+
         StringContent sc = new(JsonConvert.SerializeObject(new { uid = userID }));
         try
         {
@@ -483,10 +526,10 @@ class Federation
         }
 
 
-        foreach (MessageEmojiReactions r in message.reactions.Values)
+        foreach (var r in message.reactions)
         {
-            ConcurrentDictionary<string, MessageReaction> reactions = new();
-            foreach (var reaction in r)
+            MessageEmojiReactions reactions = new();
+            foreach (var reaction in r.Value)
             {
                 reactions[fixUserID(reaction.Key)] = new()
                 {
@@ -495,6 +538,7 @@ class Federation
                     reaction = reaction.Value.reaction
                 };
             }
+            message.reactions[r.Key] = reactions;
         }
 
         if (message.files != null)

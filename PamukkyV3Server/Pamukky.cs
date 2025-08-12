@@ -709,14 +709,14 @@ internal class Pamukky
                         {
                             if ((bool)a["toggle"] == true) // toggle true > mute, false > unmute.
                             {
-                                if (!userconfig.mutedChats.Contains(chatid))
+                                if (!userconfig.mutedChats.ContainsKey(chatid))
                                 { //Don't add duplicates
-                                    userconfig.mutedChats.Add(chatid);
+                                    userconfig.mutedChats[chatid] = new MutedChatData();
                                 }
                             }
                             else
                             {
-                                userconfig.mutedChats.Remove(chatid);
+                                userconfig.mutedChats.Remove(chatid, out _);
                             }
                             userconfig.Save();
                         }
@@ -2316,85 +2316,54 @@ internal class Pamukky
                     Dictionary<string, string>? request = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
                     if (request != null)
                     {
-                        if (request.ContainsKey("serverurl"))
-                        {
-                            if (request.ContainsKey("id"))
+                        Federation? fed = Federation.getFromRequestStrDict(request);
+                        if (fed != null) {
+                            if (request.ContainsKey("groupid"))
                             {
-                                if (Federation.federations.ContainsKey(request["serverurl"]))
+                                string id = request["groupid"].Split("@")[0];
+                                Group? gp = await Group.Get(id);
+                                if (gp != null)
                                 {
-                                    Federation fed = Federation.federations[request["serverurl"]];
-                                    if (fed.id == request["id"])
+                                    bool showfullinfo = false;
+                                    if (gp.publicgroup)
                                     {
-
-                                        if (request.ContainsKey("groupid"))
-                                        {
-                                            string id = request["groupid"].Split("@")[0];
-                                            Group? gp = await Group.Get(id);
-                                            if (gp != null)
-                                            {
-                                                bool showfullinfo = false;
-                                                if (gp.publicgroup)
-                                                {
-                                                    showfullinfo = true;
-                                                }
-                                                else
-                                                {
-                                                    foreach (string member in gp.members.Keys)
-                                                    {
-                                                        if (member.Contains("@"))
-                                                        {
-                                                            string server = member.Split("@")[1];
-                                                            if (server == fed.serverURL)
-                                                            {
-                                                                showfullinfo = true;
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                if (showfullinfo)
-                                                {
-                                                    res = JsonConvert.SerializeObject(gp);
-                                                }
-                                                else
-                                                {
-                                                    res = JsonConvert.SerializeObject(new ServerResponse("exists")); //To make server know the group actually exists but it's private.
-                                                }
-                                            }
-                                            else
-                                            {
-                                                statuscode = 404;
-                                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group not found."));
-                                            }
-                                        }
-                                        else
-                                        {
-                                            statuscode = 411;
-                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGID", "Request doesn't contain a group ID."));
-                                        }
+                                        showfullinfo = true;
                                     }
                                     else
                                     {
-                                        statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "IDWRONG", "ID is wrong."));
+                                        foreach (string member in gp.members.Keys)
+                                        {
+                                            if (member.Contains("@"))
+                                            {
+                                                string server = member.Split("@")[1];
+                                                if (server == fed.serverURL)
+                                                {
+                                                    showfullinfo = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (showfullinfo)
+                                    {
+                                        res = JsonConvert.SerializeObject(gp);
+                                    }
+                                    else
+                                    {
+                                        res = JsonConvert.SerializeObject(new ServerResponse("exists")); //To make server know the group actually exists but it's private.
                                     }
                                 }
                                 else
                                 {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Not a valid federation."));
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group not found."));
                                 }
                             }
                             else
                             {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOID", "Request doesn't contain a ID."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGID", "Request doesn't contain a group ID."));
                             }
-                        }
-                        else
-                        {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
                         }
                     }
                     else
@@ -2408,75 +2377,46 @@ internal class Pamukky
                     Dictionary<string, string>? request = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
                     if (request != null)
                     {
-                        if (request.ContainsKey("serverurl"))
+                        Federation? fed = Federation.getFromRequestStrDict(request);
+                        if (fed != null)
                         {
-                            if (request.ContainsKey("id"))
+                            if (request.ContainsKey("groupid"))
                             {
-                                if (Federation.federations.ContainsKey(request["serverurl"]))
+                                if (request.ContainsKey("userid"))
                                 {
-                                    Federation fed = Federation.federations[request["serverurl"]];
-                                    if (fed.id == request["id"])
+                                    string id = request["groupid"].Split("@")[0];
+                                    Group? gp = await Group.Get(id);
+                                    if (gp != null)
                                     {
-                                        if (request.ContainsKey("groupid"))
+                                        bool stat = await gp.addUser(request["userid"] + "@" + fed.serverURL);
+                                        if (stat)
                                         {
-                                            if (request.ContainsKey("userid"))
-                                            {
-                                                string id = request["groupid"].Split("@")[0];
-                                                Group? gp = await Group.Get(id);
-                                                if (gp != null)
-                                                {
-                                                    bool stat = await gp.addUser(request["userid"] + "@" + fed.serverURL);
-                                                    if (stat)
-                                                    {
-                                                        gp.Save();
-                                                        res = JsonConvert.SerializeObject(new ServerResponse("done"));
-                                                    }
-                                                    else
-                                                    {
-                                                        statuscode = 403;
-                                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "FAIL", "Couldn't join group."));
-                                                    }
-                                                }
-                                                else
-                                                {
-                                                    statuscode = 404;
-                                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group not found."));
-                                                }
-                                            }
-                                            else
-                                            {
-                                                statuscode = 411;
-                                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUID", "Request doesn't contain a user ID."));
-                                            }
+                                            gp.Save();
+                                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
                                         }
                                         else
                                         {
-                                            statuscode = 411;
-                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGID", "Request doesn't contain a group ID."));
+                                            statuscode = 403;
+                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "FAIL", "Couldn't join group."));
                                         }
                                     }
                                     else
                                     {
-                                        statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "IDWRONG", "ID is wrong."));
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group not found."));
                                     }
                                 }
                                 else
                                 {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Not a valid federation."));
+                                    statuscode = 411;
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUID", "Request doesn't contain a user ID."));
                                 }
                             }
                             else
                             {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOID", "Request doesn't contain a ID."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGID", "Request doesn't contain a group ID."));
                             }
-                        }
-                        else
-                        {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
                         }
                     }
                     else
@@ -2490,75 +2430,46 @@ internal class Pamukky
                     Dictionary<string, string>? request = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
                     if (request != null)
                     {
-                        if (request.ContainsKey("serverurl"))
+                        Federation? fed = Federation.getFromRequestStrDict(request);
+                        if (fed != null)
                         {
-                            if (request.ContainsKey("id"))
+                            if (request.ContainsKey("groupid"))
                             {
-                                if (Federation.federations.ContainsKey(request["serverurl"]))
+                                if (request.ContainsKey("userid"))
                                 {
-                                    Federation fed = Federation.federations[request["serverurl"]];
-                                    if (fed.id == request["id"])
+                                    string id = request["groupid"].Split("@")[0];
+                                    Group? gp = await Group.Get(id);
+                                    if (gp != null)
                                     {
-                                        if (request.ContainsKey("groupid"))
+                                        bool stat = await gp.removeUser(request["userid"] + "@" + fed.serverURL);
+                                        if (stat)
                                         {
-                                            if (request.ContainsKey("userid"))
-                                            {
-                                                string id = request["groupid"].Split("@")[0];
-                                                Group? gp = await Group.Get(id);
-                                                if (gp != null)
-                                                {
-                                                    bool stat = await gp.removeUser(request["userid"] + "@" + fed.serverURL);
-                                                    if (stat)
-                                                    {
-                                                        gp.Save();
-                                                        res = JsonConvert.SerializeObject(new ServerResponse("done"));
-                                                    }
-                                                    else
-                                                    {
-                                                        statuscode = 403;
-                                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "FAIL", "Couldn't leave group."));
-                                                    }
-                                                }
-                                                else
-                                                {
-                                                    statuscode = 404;
-                                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group not found."));
-                                                }
-                                            }
-                                            else
-                                            {
-                                                statuscode = 411;
-                                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUID", "Request doesn't contain a user ID."));
-                                            }
+                                            gp.Save();
+                                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
                                         }
                                         else
                                         {
-                                            statuscode = 411;
-                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGID", "Request doesn't contain a group ID."));
+                                            statuscode = 403;
+                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "FAIL", "Couldn't leave group."));
                                         }
                                     }
                                     else
                                     {
-                                        statuscode = 403;
-                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "IDWRONG", "ID is wrong."));
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group not found."));
                                     }
                                 }
                                 else
                                 {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Not a valid federation."));
+                                    statuscode = 411;
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUID", "Request doesn't contain a user ID."));
                                 }
                             }
                             else
                             {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOID", "Request doesn't contain a ID."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGID", "Request doesn't contain a group ID."));
                             }
-                        }
-                        else
-                        {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
                         }
                     }
                     else
@@ -2572,86 +2483,57 @@ internal class Pamukky
                     Dictionary<string, string>? request = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
                     if (request != null)
                     {
-                        if (request.ContainsKey("serverurl"))
-                        {
-                            if (request.ContainsKey("id"))
+                        Federation? fed = Federation.getFromRequestStrDict(request);
+                        if (fed != null) {
+                            if (request.ContainsKey("chatid"))
                             {
-                                if (Federation.federations.ContainsKey(request["serverurl"]))
+                                string id = request["chatid"].Split("@")[0];
+                                Chat? chat = await Chat.getChat(id);
+                                if (chat != null)
                                 {
-                                    Federation fed = Federation.federations[request["serverurl"]];
-                                    if (fed.id == request["id"])
+                                    bool showfullinfo = false;
+                                    if (chat.group.publicgroup)
                                     {
-                                        if (request.ContainsKey("chatid"))
-                                        {
-                                            string id = request["chatid"].Split("@")[0];
-                                            Chat? chat = await Chat.getChat(id);
-                                            if (chat != null)
-                                            {
-                                                bool showfullinfo = false;
-                                                if (chat.group.publicgroup)
-                                                {
-                                                    showfullinfo = true;
-                                                }
-                                                else
-                                                {
-                                                    foreach (string member in chat.group.members.Keys)
-                                                    {
-                                                        if (member.Contains("@"))
-                                                        {
-                                                            string server = member.Split("@")[1];
-                                                            if (server == fed.serverURL)
-                                                            {
-                                                                showfullinfo = true;
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                if (showfullinfo)
-                                                {
-                                                    chat.connectedFederations.Add(fed);
-                                                    res = JsonConvert.SerializeObject(chat);
-                                                }
-                                                else
-                                                {
-                                                    statuscode = 403;
-                                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOPERM", "Can't read chat."));
-                                                }
-                                            }
-                                            else
-                                            {
-                                                statuscode = 404;
-                                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCHAT", "Chat not found."));
-                                            }
-                                        }
-                                        else
-                                        {
-                                            statuscode = 411;
-                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCID", "Request doesn't contain a chat ID."));
-                                        }
+                                        showfullinfo = true;
                                     }
                                     else
                                     {
-                                        statuscode = 404;
-                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "IDWRONG", "ID is wrong."));
+                                        foreach (string member in chat.group.members.Keys)
+                                        {
+                                            if (member.Contains("@"))
+                                            {
+                                                string server = member.Split("@")[1];
+                                                if (server == fed.serverURL)
+                                                {
+                                                    showfullinfo = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (showfullinfo)
+                                    {
+                                        fed.cachedUpdates.AddHook(chat);
+                                        chat.connectedFederations.Add(fed);
+                                        res = JsonConvert.SerializeObject(chat);
+                                    }
+                                    else
+                                    {
+                                        statuscode = 403;
+                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOPERM", "Can't read chat."));
                                     }
                                 }
                                 else
                                 {
                                     statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Not a valid federation."));
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCHAT", "Chat not found."));
                                 }
                             }
                             else
                             {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOID", "Request doesn't contain a id."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCID", "Request doesn't contain a chat ID."));
                             }
-                        }
-                        else
-                        {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSERVERURL", "Request doesn't contain a server URL."));
                         }
                     }
                     else
@@ -2660,147 +2542,127 @@ internal class Pamukky
                         res = JsonConvert.SerializeObject(new ServerResponse("error", "INVALID", "Couldn't parse request."));
                     }
                 }
-                else if (url == "federationrecievechatupdates")
+                else if (url == "federationrecieveupdates")
                 {
-                    Dictionary<string, object>? request = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+                    UpdateRecieveRequest? request = JsonConvert.DeserializeObject<UpdateRecieveRequest>(body);
                     if (request != null)
                     {
-                        if (request.ContainsKey("serverurl"))
+                        Federation? fed = Federation.getFromRequestURR(request);
+                        if (fed != null)
                         {
-                            if (request.ContainsKey("id"))
+                            if (request.updates != null)
                             {
-                                if (request.ContainsKey("updates"))
+                                foreach (var updatehook in request.updates)
                                 {
-                                    if (Federation.federations.ContainsKey(request["serverurl"].ToString() ?? ""))
-                                    {
-                                        Federation fed = Federation.federations[request["serverurl"].ToString() ?? ""];
-                                        if (fed.id == request["id"].ToString())
+                                    string type = updatehook.Key.Split(":")[0];
+                                    string target = updatehook.Key.Split(":")[1];
+                                    if (type == "chat")
+                                    { 
+                                        string id = target.Split("@")[0];
+                                        Console.WriteLine(target);
+                                        Chat? chat = await Chat.getChat(id + "@" + fed.serverURL);
+                                        if (chat == null)
                                         {
-                                            if (request.ContainsKey("chatid"))
+                                            chat = await Chat.getChat(id);
+                                        }
+                                        if (chat != null)
+                                        {
+                                            var updates = updatehook.Value;
+                                            foreach (var upd in updates)
                                             {
-                                                string id = (request["chatid"].ToString() ?? "").Split("@")[0];
-                                                bool isremote = true;
-                                                Chat? chat = await Chat.getChat(id + "@" + fed.serverURL);
-                                                if (chat == null)
+                                                if (upd.Value == null) continue;
+                                                if (upd.Key.StartsWith("TYPING|"))
                                                 {
-                                                    chat = await Chat.getChat(id);
-                                                    isremote = false;
-                                                }
-                                                if (chat != null)
-                                                {
-                                                    var updates = (JArray)request["updates"];
-                                                    foreach (var upd in updates)
+                                                    // Get the typing user and fix id
+                                                    string user = fed.fixUserID(upd.Key.Split("|")[1]);
+                                                    if ((bool)upd.Value) // Typing
                                                     {
-                                                        var update = (JObject)upd;
-                                                        string eventn = (update["event"] ?? "").ToString() ?? "";
-                                                        string mid = (update["id"] ?? "").ToString() ?? "";
-                                                        if (eventn == "NEWMESSAGE")
-                                                        {
-                                                            if (!isremote)
-                                                            {
-                                                                if ((update["sender"] ?? "").ToString() == "0")
-                                                                {
-                                                                    continue; //Don't allow Pamuk messages from other federations, because they are probably echoes.
-                                                                }
-                                                            }
-
-                                                            // IDK how else to do this...
-                                                            string? forwardedFrom = null;
-                                                            if (update.ContainsKey("forwardedfrom"))
-                                                            {
-                                                                if (update["forwardedfrom"] != null)
-                                                                {
-                                                                    forwardedFrom = (update["forwardedfrom"] ?? "").ToString();
-                                                                    if (forwardedFrom == "") {
-                                                                        forwardedFrom = null;
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            ChatMessage msg = new ChatMessage()
-                                                            {
-                                                                sender = (update["sender"] ?? "").ToString() ?? "",
-                                                                content = (update["content"] ?? "").ToString() ?? "",
-                                                                time = (update["time"] ?? "").ToString() ?? "",
-                                                                replymsgid = update.ContainsKey("replymsgid") ? update["replymsgid"] == null ? null : (update["replymsgid"] ?? "").ToString() : null,
-                                                                forwardedfrom = forwardedFrom,
-                                                                files = update.ContainsKey("files") && (update["files"] is JArray) ? ((JArray?)update["files"] ?? new JArray()).ToObject<List<string>>() : null,
-                                                                pinned = update["pinned"] != null ? (bool?)update["pinned"] ?? false : false,
-                                                                reactions = update.ContainsKey("reactions") && (update["reactions"] is JObject) ? ((JObject?)update["reactions"] ?? new JObject()).ToObject<MessageReactions>() ?? new MessageReactions() : new MessageReactions(),
-                                                            };
-                                                            fed.fixMessage(msg);
-                                                            chat.sendMessage(msg, true, mid);
-                                                        }
-                                                        else if (eventn == "REACTIONS")
-                                                        {
-                                                            if (update.ContainsKey("rect"))
-                                                            {
-                                                                if (update["rect"] != null)
-                                                                {
-                                                                    var reactions = (JObject?)update["rect"];
-                                                                    if (reactions != null)
-                                                                    {
-                                                                        var r = reactions.ToObject<MessageReactions>();
-                                                                        if (r != null) chat.putReactions(mid, r);
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                        else if (eventn == "DELETED")
-                                                        {
-                                                            chat.deleteMessage(mid);
-                                                        }
-                                                        else if (eventn == "PINNED")
-                                                        {
-                                                            chat.pinMessage(mid, true);
-                                                        }
-                                                        else if (eventn == "UNPINNED")
-                                                        {
-                                                            chat.pinMessage(mid, false);
-                                                        }
+                                                        chat.setTyping(user);
+                                                    }
+                                                    else // Not typing
+                                                    {
+                                                        chat.remTyping(user);
                                                     }
                                                 }
                                                 else
                                                 {
-                                                    statuscode = 404;
-                                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCHAT", "Chat not found."));
+                                                    var update = (JObject)upd.Value;
+                                                    string eventn = (update["event"] ?? "").ToString() ?? "";
+                                                    string mid = (update["id"] ?? "").ToString() ?? "";
+                                                    if (eventn == "NEWMESSAGE")
+                                                    {
+                                                        if ((update["sender"] ?? "").ToString() == "0")
+                                                        {
+                                                            continue; //Don't allow Pamuk messages from other federations, because they are probably echoes.
+                                                        }
+
+                                                        // IDK how else to do this...
+                                                        string? forwardedFrom = null;
+                                                        if (update.ContainsKey("forwardedfrom"))
+                                                        {
+                                                            if (update["forwardedfrom"] != null)
+                                                            {
+                                                                forwardedFrom = (update["forwardedfrom"] ?? "").ToString();
+                                                                if (forwardedFrom == "")
+                                                                {
+                                                                    forwardedFrom = null;
+                                                                }
+                                                            }
+                                                        }
+
+                                                        ChatMessage msg = new ChatMessage()
+                                                        {
+                                                            sender = (update["sender"] ?? "").ToString() ?? "",
+                                                            content = (update["content"] ?? "").ToString() ?? "",
+                                                            time = (update["time"] ?? "").ToString() ?? "",
+                                                            replymsgid = update.ContainsKey("replymsgid") ? update["replymsgid"] == null ? null : (update["replymsgid"] ?? "").ToString() : null,
+                                                            forwardedfrom = forwardedFrom,
+                                                            files = update.ContainsKey("files") && (update["files"] is JArray) ? ((JArray?)update["files"] ?? new JArray()).ToObject<List<string>>() : null,
+                                                            pinned = update["pinned"] != null ? (bool?)update["pinned"] ?? false : false,
+                                                            reactions = update.ContainsKey("reactions") && (update["reactions"] is JObject) ? ((JObject?)update["reactions"] ?? new JObject()).ToObject<MessageReactions>() ?? new MessageReactions() : new MessageReactions(),
+                                                        };
+                                                        fed.fixMessage(msg);
+                                                        chat.sendMessage(msg, true, mid);
+                                                    }
+                                                    else if (eventn.StartsWith("REACT"))
+                                                    {
+                                                        if (update.ContainsKey("id") && update.ContainsKey("userID") && update.ContainsKey("reaction"))
+                                                        {
+                                                            if (update["id"] != null && update["userID"] != null && update["reaction"] != null)
+                                                            {
+                                                                Console.WriteLine("c");
+                                                                chat.reactMessage(mid, fed.fixUserID((update["userID"] ?? "").ToString() ?? ""), (update["reaction"] ?? "").ToString() ?? "", eventn == "REACT");
+                                                            }
+                                                        }
+                                                    }
+                                                    else if (eventn == "DELETED")
+                                                    {
+                                                        chat.deleteMessage(mid);
+                                                    }
+                                                    else if (eventn == "PINNED")
+                                                    {
+                                                        chat.pinMessage(mid, true);
+                                                    }
+                                                    else if (eventn == "UNPINNED")
+                                                    {
+                                                        chat.pinMessage(mid, false);
+                                                    }
                                                 }
-                                            }
-                                            else
-                                            {
-                                                statuscode = 411;
-                                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCID", "Request doesn't contain a chat ID."));
                                             }
                                         }
                                         else
                                         {
-                                            statuscode = 403;
-                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "IDWRONG", "ID is wrong."));
+                                            statuscode = 404;
+                                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCHAT", "Chat not found."));
                                         }
-
                                     }
-                                    else
-                                    {
-                                        statuscode = 404;
-                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Not a valid federation."));
-                                    }
-                                }
-                                else
-                                {
-                                    statuscode = 411;
-                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUPDATES", "Request doesn't contain updates."));
                                 }
                             }
                             else
                             {
                                 statuscode = 411;
-                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOID", "Request doesn't contain a ID."));
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCID", "Request doesn't contain a chat ID."));
                             }
-                        }
-                        else
-                        {
-                            statuscode = 411;
-                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOSERVER", "Request doesn't contain a server url."));
                         }
                     }
                     else

@@ -224,16 +224,6 @@ class Chat : OrderedDictionary<string, ChatMessage>
     public ConcurrentDictionary<long, Dictionary<string, object?>> updates = new();
 
     /// <summary>
-    /// List of updates to push to other connected federations.
-    /// </summary>
-    private List<Dictionary<string, object?>> updatesToPush = new();
-
-    /// <summary>
-    /// Boolean to show if a new push request should be done.
-    /// </summary>
-    bool doPushRequest = true;
-
-    /// <summary>
     /// Dictionary to cache formatted messages. Shouldn't be directly used to get them.
     /// </summary>
     private Dictionary<string, ChatMessageFormatted> formatCache = new();
@@ -278,30 +268,39 @@ class Chat : OrderedDictionary<string, ChatMessage>
     }
 
     #region Typing status
+
+    /// <summary>
+    /// Sets user as typing
+    /// </summary>
+    /// <param name="uid">ID of the user.</param>
     public void setTyping(string uid)
     {
-        if (!typingUsers.Contains(uid))
+        if (!typingUsers.Contains(uid)) // Don't do duplicates
         {
             typingUsers.Add(uid);
-            foreach (UpdateHook hook in updateHooks)
+            foreach (UpdateHook hook in updateHooks) // Send the event.
             {
-                if (canDo(hook.uid, chatAction.Read))
+                if (canDo(hook.target, chatAction.Read))
                 {
-                    hook["TYPING"] = typingUsers;
+                    hook["TYPING|" + uid] = true;
                 }
             }
         }
     }
 
+    /// <summary>
+    /// Sets user as not typing.
+    /// </summary>
+    /// <param name="uid">ID of the user.</param>
     public void remTyping(string uid)
     {
-        if (typingUsers.Remove(uid))
+        if (typingUsers.Remove(uid)) // Remove and if successful. So this doesn't happen multiple times.
         {
             foreach (UpdateHook hook in updateHooks)
             {
-                if (canDo(hook.uid, chatAction.Read))
+                if (canDo(hook.target, chatAction.Read))
                 {
-                    hook["TYPING"] = typingUsers;
+                    hook["TYPING|" + uid] = false;
                 }
             }
         }
@@ -335,7 +334,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     /// <param name="update">A dictionary that is a update</param>
     /// <param name="push">If true(default) updates will be pushed to federations</param>
-    void addUpdate(Dictionary<string, object?> update, bool push = true)
+    void addUpdate(Dictionary<string, object?> update)
     {
         wasUpdated = true;
         if ((update["event"] ?? "").ToString() == "DELETED")
@@ -355,7 +354,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 }
             }
         }
-        if ((update["event"] ?? "").ToString() == "REACT")
+        /*if ((update["event"] ?? "").ToString() == "REACT")
         {
             string msgid = (update["id"] ?? "").ToString() ?? "";
             int i = 0;
@@ -371,7 +370,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                     ++i;
                 }
             }
-        }
+        }*/
         if ((update["event"] ?? "").ToString() == "UNPINNED")
         {
             string msgid = (update["id"] ?? "").ToString() ?? "";
@@ -412,35 +411,10 @@ class Chat : OrderedDictionary<string, ChatMessage>
         var formattedUpdate = formatUpdate(update);
         foreach (UpdateHook hook in updateHooks)
         {
-            if (canDo(hook.uid, chatAction.Read))
+            if (canDo(hook.target, chatAction.Read))
             {
                 hook[newID.ToString()] = formattedUpdate;
             }
-        }
-
-        if (push) pushUpdate(update);
-    }
-
-    /// <summary>
-    /// Pushes a update to remote federations
-    /// </summary>
-    /// <param name="update">A dictionary that is a update</param>
-    void pushUpdate(Dictionary<string, object?> update)
-    {
-        if (connectedFederations.Count == 0) return;
-        updatesToPush.Add(formatUpdate(update));
-        if (doPushRequest)
-        {
-            Task.Delay(500).ContinueWith((task) =>
-            { // Delay to send it as groupped
-                foreach (Federation fed in connectedFederations)
-                {
-                    fed.pushChatUpdates(chatID, updatesToPush);
-                }
-                updatesToPush.Clear();
-                doPushRequest = true;
-            });
-            doPushRequest = false;
         }
     }
 
@@ -540,11 +514,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
         }
         else
         {
-            update = new();
-            if (eventtype == "REACTIONS" && ContainsKey(msgid))
-            {
-                update["rect"] = this[msgid].reactions;
-            }
+            update = upd;
         }
         update["event"] = eventtype;
         update["id"] = msgid;
@@ -779,7 +749,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 if (message.sender != member)
                 {
                     userConfig? uc = await userConfig.Get(member);
-                    if (uc != null && !uc.mutedChats.Contains(chatID))
+                    if (uc != null && uc.canSendNotification(chatID, doesContainMention(message, member)))
                     {
                         Notifications.Get(member).AddNotification(notification);
                     }
@@ -805,54 +775,50 @@ class Chat : OrderedDictionary<string, ChatMessage>
     }
 
     /// <summary>
-    /// Makes user react to a message; if called "twice", it will remove the reaction.
+    /// Makes user react to a message; if called "twice", it will remove the reaction if toggle=null.
     /// </summary>
     /// <param name="msgID">ID of the message to react to.</param>
     /// <param name="userID">ID of the user that will react.</param>
     /// <param name="reaction">Reaction emoji to send.</param>
+    /// <param name="toggle">Null to toggle(default), true to add, false to remove.</param>
     /// <returns>All reactions that are in the message.</returns>
-    public MessageReactions reactMessage(string msgID, string userID, string reaction)
+    public MessageReactions reactMessage(string msgID, string userID, string reaction, bool? toggle = null)
     {
         if (ContainsKey(msgID))
         {
             ChatMessage msg = this[msgID];
             MessageReactions rect = msg.reactions;
             MessageEmojiReactions r = rect.Get(reaction, true);
-            if (r.ContainsKey(userID))
+
+            // set toggle or ignore action if it was done already.
+            if (toggle == null) toggle = !r.ContainsKey(userID);
+            else if (toggle == true && r.ContainsKey(userID)) return rect;
+            else if (toggle == false && !r.ContainsKey(userID)) return rect;
+
+
+            //Create event dictionary to send.
+            Dictionary<string, object?> update = new();
+            update["id"] = msgID;
+            update["userID"] = userID;
+            update["reaction"] = reaction;
+            if (toggle == true)
             {
-                r.Remove(userID, out _);
+                string time = Pamukky.dateToString(DateTime.Now);
+                MessageReaction react = new() { sender = userID, reaction = reaction, time = time };
+                r[userID] = react;
+                update["event"] = "REACT";
+                update["time"] = time;
             }
             else
             {
-                MessageReaction react = new() { sender = userID, reaction = reaction, time = Pamukky.dateToString(DateTime.Now) };
-                r[userID] = react;
+                r.Remove(userID, out _);
+                update["event"] = "UNREACT";
             }
             rect.Update();
-            Dictionary<string, object?> update = new();
-            update["event"] = "REACTIONS";
-            update["id"] = msgID;
             addUpdate(update);
             return rect;
         }
         return new();
-    }
-
-    /// <summary>
-    /// Replaces all of the reactions in the message
-    /// </summary>
-    /// <param name="msgID">ID of the message</param>
-    /// <param name="reactions">MessageReactions to set the reactions of this message to.</param>
-    public void putReactions(string msgID, MessageReactions reactions)
-    {
-        if (ContainsKey(msgID))
-        {
-            reactions.Update(); // Update the given MessageReactions so it doesn't have stuff like 0 emoji reactions
-            this[msgID].reactions = reactions;
-            Dictionary<string,object?> update = new(); //FIXME: Echoes in federations where this function is used in...
-            update["event"] = "REACTIONS";
-            update["id"] = msgID;
-            addUpdate(update, false);
-        }
     }
 
     /// <summary>
@@ -902,6 +868,35 @@ class Chat : OrderedDictionary<string, ChatMessage>
 
     #endregion
 
+    #region Helpers
+    /// <summary>
+    /// Helper function to dedect if message has a mention to the target user.
+    /// </summary>
+    /// <param name="msg">ChatMessage to dedect.</param>
+    /// <param name="targetUserID">ID of the target user to search for mentions(@) in the message.</param>
+    /// <returns></returns>
+    public bool doesContainMention(ChatMessage msg, string targetUserID)
+    {
+        // @chat, @everyone and @room like stuff that pings everyone.
+        if (msg.content.Contains("@chat") || msg.content.Contains("@everyone") || msg.content.Contains("@room")) return true;
+        // A actual mention of user
+        if (msg.content.Contains("@" + targetUserID)) return true;
+        // Reply to user's message. if replied.
+        if (msg.replymsgid != null)
+        {
+            if (ContainsKey(msg.replymsgid))
+            {
+                ChatMessage targetMessage = this[msg.replymsgid];
+                if (targetMessage.sender == targetUserID)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    } 
+    #endregion
+
     #region Permissions
     public enum chatAction
     {
@@ -912,14 +907,20 @@ class Chat : OrderedDictionary<string, ChatMessage>
         Pin
     }
 
-    public bool canDo(string user, chatAction action, string msgid = "")
+    public bool canDo(string target, chatAction action, string msgid = "")
     {
         if (action == chatAction.Read && group.publicgroup) return true;
+
+        if (target.Contains(":") || target.Contains("."))
+        {
+            //Console.WriteLine("Fed Allow");
+            return true;
+        }
 
         GroupMember? u = null;
         foreach (var member in group.members)
         { //find the user
-            if (member.Value.user == user)
+            if (member.Value.user == target)
             {
                 u = member.Value;
             }
@@ -937,7 +938,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
         }
         if (action == chatAction.Delete)
         {
-            if (this[msgid].sender == user)
+            if (this[msgid].sender == target)
             { // User can delete their own messages.
                 return true;
             }

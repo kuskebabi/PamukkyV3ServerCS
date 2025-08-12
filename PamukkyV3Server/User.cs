@@ -76,6 +76,14 @@ class loginCred
 }
 
 /// <summary>
+/// Class for muted chat config.
+/// </summary>
+class MutedChatData
+{
+    public bool allowTags = true;
+}
+
+/// <summary>
 /// Class to hold user-private settings like muted chats.
 /// </summary>
 class userConfig
@@ -85,7 +93,7 @@ class userConfig
     [JsonIgnore]
     public static ConcurrentDictionary<string, userConfig> userConfigCache = new();
 
-    public List<string> mutedChats = new();
+    public ConcurrentDictionary<string, MutedChatData> mutedChats = new();
 
     public static async Task<userConfig?> Get(string userID)
     {
@@ -100,12 +108,21 @@ class userConfig
 
             if (File.Exists("data/info/" + userID + "/config")) // check if config file exists
             {
-                userConfig? userconfig = JsonConvert.DeserializeObject<userConfig>(await File.ReadAllTextAsync("data/info/" + userID + "/config"));
-                if (userconfig != null)
+                try
                 {
-                    userconfig.userID = userID;
-                    userConfigCache[userID] = userconfig;
-                    return userconfig;
+                    userConfig? userconfig = JsonConvert.DeserializeObject<userConfig>(await File.ReadAllTextAsync("data/info/" + userID + "/config"));
+                    if (userconfig != null)
+                    {
+                        userconfig.userID = userID;
+                        userConfigCache[userID] = userconfig;
+                        return userconfig;
+                    }
+                }
+                catch // Act like it didn't exist.
+                {
+                    userConfig uc = new() { userID = userID };
+                    userConfigCache[userID] = uc;
+                    return uc;
                 }
             }
             else // if doesn't exist, create new one
@@ -116,6 +133,32 @@ class userConfig
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Helper function to get if chat message should notify the user.
+    /// </summary>
+    /// <param name="chatID">ID of the chat.</param>
+    /// <param name="isMention">If message contains mention or not.</param>
+    /// <returns></returns>
+    public bool canSendNotification(string chatID, bool isMention)
+    {
+        if (mutedChats.ContainsKey(chatID))
+        {
+            MutedChatData config = mutedChats[chatID];
+            if (config.allowTags)
+            {
+                if (!isMention)
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void Save()
@@ -346,6 +389,10 @@ class UserProfile
     /// </summary>
     public void save()
     {
+        foreach (var hook in updateHooks)
+        {
+            hook["profileUpdate"] = this;
+        }
         File.WriteAllTextAsync("data/info/" + userID + "/profile", JsonConvert.SerializeObject(this));
     }
 }
@@ -496,19 +543,14 @@ class UpdateHook : ConcurrentDictionary<string, object?>
     /// <summary>
     /// User ID of the owner of this hook.
     /// </summary>
-    public string uid = "";
+    public string target = "";
 }
 class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
 {
     /// <summary>
-    /// Token of the user that owns these hooks.
+    /// "Token" of the user or server that owns these hooks.
     /// </summary>
-    public string token;
-
-    public UpdateHooks(string userToken)
-    {
-        token = userToken;
-    }
+    public string token = "";
 
     /// <summary>
     /// Filters all the updates to only have ones with new updates and clears them.
@@ -517,7 +559,7 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
     /// <returns></returns>
     public UpdateHooks GetNewUpdates()
     {
-        UpdateHooks rtrn = new(token);
+        UpdateHooks rtrn = new();
         foreach (var hook in this)
         {
             if (hook.Value.Count > 0)
@@ -585,15 +627,22 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
             this[hookName].Clear(); // Clear the hook.
             return;
         }
-
-        string uid = await Pamukky.GetUIDFromToken(token) ?? "";
-        UpdateHook hook = new() {uid = uid};
+        string ttarget = token;
+        if (ttarget.Contains(":") || ttarget.Contains("."))
+        {
+            Console.WriteLine("Fed create hooks");
+        }
+        else
+        {
+            ttarget = await Pamukky.GetUIDFromToken(token) ?? "";
+        }
+        UpdateHook hook = new() {target = ttarget};
         this[hookName] = hook;
 
         if (target is Chat)
         {
             Chat chat = (Chat)target;
-            if (chat.canDo(uid, Chat.chatAction.Read))
+            if (chat.canDo(ttarget, Chat.chatAction.Read))
                 chat.updateHooks.Add(hook);
         }
         else if (target is UserProfile)
@@ -604,7 +653,7 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
         else if (target is UserChatsList)
         {
             UserChatsList chatsList = (UserChatsList)target;
-            if (chatsList.userID == uid) // This check is kinda useless as you can't really select which user to and its always current one.
+            if (chatsList.userID == ttarget) // This check is kinda useless as you can't really select which user to and its always current one. Also ignoring federations for now...
             {
                 chatsList.hooks.Add(hook);
             }
@@ -625,7 +674,7 @@ class Updaters : ConcurrentDictionary<string, UpdateHooks>
     {
         if (!updaters.ContainsKey(userToken))
         {
-            updaters[userToken] = new(userToken);
+            updaters[userToken] = new() {token = userToken};
         }
 
         return updaters[userToken];
