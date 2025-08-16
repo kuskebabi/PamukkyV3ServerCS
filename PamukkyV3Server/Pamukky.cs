@@ -2929,20 +2929,33 @@ internal class Pamukky
     {
         JsonConvert.DefaultSettings = () => new JsonSerializerSettings
         {
-            NullValueHandling = NullValueHandling.Ignore //This is the main reason I was used null.
+            NullValueHandling = NullValueHandling.Ignore //This is the main reason I was used null. Doesn't quite work ig...
         };
 
         string HTTPport = "4268";
-        string HTTPSport = "8443";
+        string? HTTPSport = null;
 
-        if (args.Length > 0) { // Custom port
-            HTTPport = args[0];
-            if (args.Length > 1)
-            { // Custom https port
-                HTTPSport = args[1];
-                if (args.Length > 2)
-                {// federation url
-                    Federation.thisServerURL = args[2];
+
+        string argMode = "";
+        foreach (string arg in args)
+        {
+            if (arg.StartsWith("--"))
+            {
+                argMode = arg.Replace("--", "");
+            }
+            else
+            {
+                switch (argMode)
+                {
+                    case "port": //Normal HTTP port
+                        HTTPport = arg;
+                        break;
+                    case "federation-url":
+                        Federation.thisServerURL = arg;
+                        break;
+                    case "https-port": // HTTPS port, doesn't quite work. you SHOULD(do NOT make your server in http.) use some forwarder to make http to https.
+                        HTTPSport = arg;
+                        break;
                 }
             }
         }
@@ -2956,23 +2969,38 @@ internal class Pamukky
         Directory.CreateDirectory("data/info");
         // Start the server
         _httpListener.Prefixes.Add("http://*:" + HTTPport + "/"); //http prefix
-        _httpListener.Prefixes.Add("https://*:" + HTTPSport + "/"); //https prefix
+
+        if (HTTPSport != null)
+            _httpListener.Prefixes.Add("https://*:" + HTTPSport + "/"); //https prefix
         
         _httpListener.Start();
         Console.WriteLine("Server started. On ports " + HTTPport + " and " + HTTPSport);
         // Start responding for server
         _httpListener.BeginGetContext(new AsyncCallback(respondCall),_httpListener);
-        Console.WriteLine("Type exit to exit, type save to save.");
+        Console.WriteLine("Type help for help.");
         autoSaveTick(); // Start the autosave ticker
         new Thread(mediaProcesser).Start();
 
         // CLI
-        while (!exit) {
+        Console.WriteLine("Pamukky  Copyright (C) 2025  HAKANKOKCU");
+        Console.WriteLine();
+        Console.WriteLine("This program comes with ABSOLUTELY NO WARRANTY; This is free software, and you are welcome to redistribute it under certain conditions.");
+        while (!exit)
+        {
             string readline = Console.ReadLine() ?? "";
-            if (readline == "exit") {
-                exit = true;
-            }else if (readline == "save") {
-                saveData();
+            switch (readline.ToLower())
+            {
+                case "exit":
+                    exit = true;
+                    break;
+                case "save":
+                    saveData();
+                    break;
+                case "help":
+                    Console.WriteLine("help   Shows this menu");
+                    Console.WriteLine("save   Saves (chat) data.");
+                    Console.WriteLine("exit   Saves data and exits Pamukky.");
+                    break;
             }
         }
         // After user wants to exit, save "cached" data

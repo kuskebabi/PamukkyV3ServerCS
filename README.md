@@ -8,7 +8,7 @@ In this rewrite, I made almost everything classes. So it should be better.
 ## Normal
 - Install dotnet
 - cd to the folder which has .csproj
-- `dotnet run [-- "port" "port for https"]` ( [] is optional, port is a number)
+- `dotnet run [--port (port) --https-port (port) --federation-url (public url)]` ([] is optional)
 
 ## Docker
 - cd to the folder which has .csproj
