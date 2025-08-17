@@ -364,6 +364,37 @@ class Group
         return role;
     }
 
+    public enum statusRole
+    {
+        Owner,
+        Normal
+    }
+
+    /// <summary>
+    /// Helper function to get a role that idenifies a normal user and the owner.
+    /// </summary>
+    /// <param name="role">Role that you want to get.</param>
+    /// <returns>KeyValuePair that has string which is role name and GroupRole instance of the role.</returns>
+    public KeyValuePair<string, GroupRole>? getStatusRole(statusRole role)
+    {
+        if (role == statusRole.Owner)
+        {
+            KeyValuePair<string, GroupRole>? biggestRole = null;
+            foreach (var grole in roles)
+            {
+                if (grole.Value.AdminOrder > biggestRole?.Value.AdminOrder)
+                {
+                    biggestRole = grole;
+                }
+            }
+            return biggestRole;
+        }
+        else
+        {
+            throw new NotImplementedException();
+        }
+    }
+
     /// <summary>
     /// Saves the group.
     /// </summary>
@@ -376,10 +407,36 @@ class Group
     }
 
     /// <summary>
-    /// Checks if nobody has owner role and sets a user as owner automatically.
+    /// Checks if nobody has owner role and sets a user as owner automatically. Also checks if owner role has all permissions.
     /// </summary>
     public void checkRoles()
     {
+        // Owner role permission check
+        var ownerRole = getStatusRole(statusRole.Owner);
+        if (ownerRole == null)
+        {
+            GroupRole role = new(); // This is already for owner by default.
+            roles["Owner"] = role;
+            ownerRole = new KeyValuePair<string, GroupRole>("Owner", role);
+        }
+        else
+        {
+            GroupRole? ownerRoleContents = ownerRole?.Value;
+            if (ownerRoleContents != null)
+            {
+                // Give all permissions
+                ownerRoleContents.AdminOrder = 0;
+                ownerRoleContents.AllowBanning = true;
+                ownerRoleContents.AllowKicking = true;
+                ownerRoleContents.AllowEditingSettings = true;
+                ownerRoleContents.AllowEditingUsers = true;
+                ownerRoleContents.AllowSendingReactions = true;
+                ownerRoleContents.AllowPinningMessages = true;
+                ownerRoleContents.AllowMessageDeleting = true;
+            }
+        }
+
+        // Roles check
         GroupMember? bestMatch = null;
 
         foreach (var member in members.Values)
@@ -408,7 +465,7 @@ class Group
 
         if (bestMatch != null)
         {
-            bestMatch.role = "Owner";
+            bestMatch.role = ownerRole?.Key ?? "Owner";
         }
     }
 }
