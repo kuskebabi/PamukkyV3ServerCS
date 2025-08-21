@@ -10,19 +10,35 @@ class Group
 {
     [JsonIgnore]
     public string groupID = "";
-    [JsonIgnore]
     public static ConcurrentDictionary<string, Group> groupsCache = new();
     public static List<string> loadingGroups = new();
 
     public string name = "";
     public string picture = "";
     public string info = "";
-    public string owner = ""; //The creator, not the current one
-    public string time = ""; //Creation time
-    public bool publicgroup = false; //Can the group be read without joining?
+    public string creatorUID = "";
+    public DateTime creationTime = DateTime.Now;
+    public bool publicGroup = false; //Can the group be read without joining?
     public ConcurrentDictionary<string, GroupMember> members = new();
     public Dictionary<string, GroupRole> roles = new();
     public List<string> bannedMembers = new();
+
+    #region Backwards compatibility
+    public string owner
+    {
+        set { creatorUID = value; }
+    }
+
+    public string time
+    {
+        set { creationTime = Helpers.StringToDate(value); }
+    }
+
+    public bool publicgroup
+    {
+        set { publicGroup = value; }
+    }
+    #endregion
 
     public static async Task<Group?> Get(string gid)
     {
@@ -44,12 +60,12 @@ class Group
             string[] split = gid.Split("@");
             string id = split[0];
             string server = split[1];
-            var connection = await Federation.connect(server, true);
+            var connection = await Federation.Connect(server, true);
             if (connection != null)
             {
                 if (connection.connected == true)
                 {
-                    var g = await connection.getGroup(id);
+                    var g = await connection.GetGroup(id);
                     if (g is Group)
                     {
                         var group = (Group)g;
@@ -77,7 +93,7 @@ class Group
                 }
                 connection.Connected += async (_, _) =>
                 {
-                    var g = await connection.getGroup(id);
+                    var g = await connection.GetGroup(id);
                     if (g is Group)
                     {
                         var group = (Group)g;
@@ -103,15 +119,7 @@ class Group
         return null;
     }
 
-    /// <summary>
-    /// Sets given group to current one.
-    /// </summary>
-    /// <param name="group">Group to swap with.</param>
-    public void swapGroup(Group group)
-    {
-        group.groupID = groupID;
-        groupsCache[groupID] = group;
-    }
+    #region User management
 
     /// <summary>
     /// Adds a user to group
@@ -119,7 +127,7 @@ class Group
     /// <param name="userID">ID of the user to add.</param>
     /// <param name="role">Role of the added user.</param>
     /// <returns>True if added to the group, false if couldn't.</returns>
-    public async Task<bool> addUser(string userID, string role = "Normal")
+    public async Task<bool> AddUser(string userID, string role = "Normal")
     {
         if (members.ContainsKey(userID))
         { // To not mess stuff up
@@ -139,10 +147,10 @@ class Group
             string[] split = groupID.Split("@");
             string id = split[0];
             string server = split[1];
-            var connection = await Federation.connect(server);
+            var connection = await Federation.Connect(server);
             if (connection != null)
             {
-                var g = await connection.joinGroup(userID, id);
+                var g = await connection.JoinGroup(userID, id);
                 if (g == false)
                 {
                     return false;
@@ -157,7 +165,7 @@ class Group
             {
                 return false; //user doesn't exist
             }
-            chatItem g = new()
+            ChatItem g = new()
             { // New chats list item
                 group = groupID,
                 type = "group"
@@ -168,23 +176,22 @@ class Group
 
         members[userID] = new()
         { // Add the member! Say hi!!
-            user = userID,
+            userID = userID,
             role = role,
-            jointime = Pamukky.dateToString(DateTime.Now)
+            jointime = Helpers.DateToString(DateTime.Now)
         };
 
-        Chat? chat = await Chat.getChat(groupID);
+        Chat? chat = await Chat.GetChat(groupID);
         if (chat != null)
         {
-            if (chat.canDo(userID, Chat.chatAction.Send))
+            if (chat.CanDo(userID, Chat.ChatAction.Send))
             {
                 ChatMessage message = new()
                 {
-                    sender = "0",
-                    content = "JOINGROUP|" + userID,
-                    time = Pamukky.dateToString(DateTime.Now)
+                    senderUID = "0",
+                    content = "JOINGROUP|" + userID
                 };
-                chat.sendMessage(message);
+                chat.SendMessage(message);
             }
         }
 
@@ -197,7 +204,7 @@ class Group
     /// </summary>
     /// <param name="userID">ID of the user</param>
     /// <returns>True if removed, false if didn't.</returns>
-    public async Task<bool> removeUser(string userID)
+    public async Task<bool> RemoveUser(string userID)
     {
         if (!members.ContainsKey(userID))
         { // To not mess stuff up
@@ -209,10 +216,10 @@ class Group
             string[] split = groupID.Split("@");
             string id = split[0];
             string server = split[1];
-            var connection = await Federation.connect(server);
+            var connection = await Federation.Connect(server);
             if (connection != null)
             {
-                var g = await connection.leaveGroup(userID, id);
+                var g = await connection.LeaveGroup(userID, id);
                 if (g == false)
                 {
                     return false;
@@ -231,18 +238,17 @@ class Group
             clist.Save(); //Save their chats list
         }
 
-        Chat? chat = await Chat.getChat(groupID);
+        Chat? chat = await Chat.GetChat(groupID);
         if (chat != null)
         {
-            if (chat.canDo(userID, Chat.chatAction.Send))
+            if (chat.CanDo(userID, Chat.ChatAction.Send))
             {
                 ChatMessage message = new()
                 {
-                    sender = "0",
-                    content = "LEFTGROUP|" + userID,
-                    time = Pamukky.dateToString(DateTime.Now)
+                    senderUID = "0",
+                    content = "LEFTGROUP|" + userID
                 };
-                chat.sendMessage(message);
+                chat.SendMessage(message);
             }
         }
 
@@ -257,9 +263,9 @@ class Group
     /// </summary>
     /// <param name="userID">ID of the user to ban from the group.</param>
     /// <returns>True if could ban the user, false if couldn't.</returns>
-    public async Task<bool> banUser(string userID)
+    public async Task<bool> BanUser(string userID)
     {
-        if (await removeUser(userID))
+        if (await RemoveUser(userID))
         {
             if (!bannedMembers.Contains(userID))
             {
@@ -274,10 +280,12 @@ class Group
     /// Unbans a user from the group
     /// </summary>
     /// <param name="userID">ID of the user to unban</param>
-    public void unbanUser(string userID)
+    public void UnbanUser(string userID)
     {
         bannedMembers.Remove(userID);
     }
+
+    #endregion
 
     #region Permissions
     public enum groupAction
@@ -289,14 +297,14 @@ class Group
         Read
     }
 
-    public bool canDo(string user, groupAction action, string? target = null)
+    public bool CanDo(string user, groupAction action, string? target = null)
     {
-        if (action == groupAction.Read && publicgroup) return true;
+        if (action == groupAction.Read && publicGroup) return true;
 
         GroupMember? u = null;
         foreach (var member in members)
         { //find the user
-            if (member.Value.user == user)
+            if (member.Value.userID == user)
             {
                 u = member.Value;
             }
@@ -314,7 +322,7 @@ class Group
 
         if (action == groupAction.EditGroup) return role.AllowEditingSettings;
 
-        GroupRole? targetUserRole = getUserRole(target ?? "");
+        GroupRole? targetUserRole = GetUserRole(target ?? "");
         if (targetUserRole != null)
         {
             if (action == groupAction.EditUser) return role.AllowEditingUsers && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
@@ -335,13 +343,13 @@ class Group
     /// </summary>
     /// <param name="userID">ID of the user</param>
     /// <returns>GroupRole of the role user has.</returns>
-    public GroupRole? getUserRole(string userID)
+    public GroupRole? GetUserRole(string userID)
     {
         bool contains = false;
         GroupMember? u = null;
         foreach (var member in members)
         { //find the user
-            if (member.Value.user == userID)
+            if (member.Value.userID == userID)
             {
                 contains = true;
                 u = member.Value;
@@ -364,7 +372,7 @@ class Group
         return role;
     }
 
-    public enum statusRole
+    public enum StatusRole
     {
         Owner,
         Normal
@@ -375,9 +383,9 @@ class Group
     /// </summary>
     /// <param name="role">Role that you want to get.</param>
     /// <returns>KeyValuePair that has string which is role name and GroupRole instance of the role.</returns>
-    public KeyValuePair<string, GroupRole>? getStatusRole(statusRole role)
+    public KeyValuePair<string, GroupRole>? GetRoleFromStatus(StatusRole role)
     {
-        if (role == statusRole.Owner)
+        if (role == StatusRole.Owner)
         {
             KeyValuePair<string, GroupRole>? biggestRole = null;
             foreach (var grole in roles)
@@ -400,7 +408,7 @@ class Group
     /// </summary>
     public void Save()
     {
-        checkRoles();
+        CheckRoles();
         Directory.CreateDirectory("data/info/" + groupID);
         string c = JsonConvert.SerializeObject(this);
         File.WriteAllTextAsync("data/info/" + groupID + "/info", c);
@@ -409,10 +417,10 @@ class Group
     /// <summary>
     /// Checks if nobody has owner role and sets a user as owner automatically. Also checks if owner role has all permissions.
     /// </summary>
-    public void checkRoles()
+    public void CheckRoles()
     {
         // Owner role permission check
-        var ownerRole = getStatusRole(statusRole.Owner);
+        var ownerRole = GetRoleFromStatus(StatusRole.Owner);
         if (ownerRole == null)
         {
             GroupRole role = new(); // This is already for owner by default.
@@ -441,7 +449,7 @@ class Group
 
         foreach (var member in members.Values)
         {
-            if (getUserRole(member.user)?.AdminOrder == 0)
+            if (GetUserRole(member.userID)?.AdminOrder == 0)
             {
                 // Stop it if there is a owner already.
                 return;
@@ -450,13 +458,13 @@ class Group
 
         foreach (var member in members.Values)
         {
-            if (member.user == owner)
+            if (member.userID == creatorUID)
             {
                 // If the member is the original owner, give the role to them first.
                 bestMatch = member;
                 break;
             }
-            if (bestMatch == null || getUserRole(member.user)?.AdminOrder > getUserRole(bestMatch.user)?.AdminOrder)
+            if (bestMatch == null || GetUserRole(member.userID)?.AdminOrder > GetUserRole(bestMatch.userID)?.AdminOrder)
             {
                 // Basically try to find the user with highest role.
                 bestMatch = member;
@@ -478,7 +486,7 @@ class GroupInfo
     public string name = "";
     public string picture = "";
     public string info = "";
-    public bool publicgroup = false;
+    public bool publicGroup = false;
 }
 
 /// <summary>
@@ -486,9 +494,19 @@ class GroupInfo
 /// </summary>
 class GroupMember
 {
-    public string user = "";
+    public string userID = "";
     public string role = "";
-    public string jointime = "";
+    public DateTime joinTime = DateTime.Now;
+
+    public string jointime
+    {
+        set { joinTime = Helpers.StringToDate(value); }
+    }
+
+    public string user
+    {
+        set { userID = value; }
+    }
 }
 
 /// <summary>

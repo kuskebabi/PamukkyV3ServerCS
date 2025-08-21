@@ -7,7 +7,7 @@ namespace PamukkyV3;
 /// <summary>
 /// Federation request style to parse.
 /// </summary>
-class federationRequest
+class FederationRequest
 {
     public string? serverurl = null;
 }
@@ -70,14 +70,14 @@ class Federation
         serverURL = server;
         id = fid;
         cachedUpdates = new() { token = server };
-        pushUpdates();
+        PushUpdates();
     }
 
     /// <summary>
     /// Handles a Exception thrown while a federation action that uses HTTP. If it's HttpRequestError, sets connected to false.
     /// </summary>
     /// <param name="e">Exception</param>
-    void handleException(Exception e)
+    void HandleException(Exception e)
     {
         if (e.GetType() == typeof(HttpRequestError))
         {
@@ -91,30 +91,30 @@ class Federation
     /// Handles error status from request responses.
     /// </summary>
     /// <param name="status">Dictionary from a failled request response. Needs to have "code" key.</param>
-    void handleStatus(Dictionary<string, object> status)
+    void HandleStatus(Dictionary<string, object> status)
     {
         switch (status["code"].ToString())
         {
             case "IDWRONG":
                 Console.WriteLine("Peer has error, reconnecting...");
                 connected = false;
-                _ = reconnect(); // We don't need response of this.
+                _ = Reconnect(); // We don't need response of this.
                 break;
 
             case "NOFED":
                 Console.WriteLine("Peer has error, reconnecting...");
                 connected = false;
-                _ = reconnect(); // We don't need response of this.
+                _ = Reconnect(); // We don't need response of this.
                 break;
         }
     }
     /// <summary>
     /// Pushes chat updates to remote servers, acting like a client for them.
     /// </summary>
-    public async void pushUpdates()
+    public async void PushUpdates()
     {
         //Console.WriteLine("pushtick");
-        if (await reconnect())
+        if (await Reconnect())
         {
             UpdateHooks updates = await cachedUpdates.waitForUpdates();
 
@@ -129,17 +129,17 @@ class Federation
                 if (ret != null)
                     if (ret.ContainsKey("status"))
                     {
-                        handleStatus(ret);
+                        HandleStatus(ret);
                         return;
                     }
             }
             catch (Exception e)
             {
-                handleException(e);
+                HandleException(e);
                 Console.WriteLine(e.ToString());
             }
         }
-        pushUpdates();
+        PushUpdates();
     }
 
     /// <summary>
@@ -148,7 +148,7 @@ class Federation
     /// <param name="server">URL of server</param>
     /// <param name="dummy">If true, it creates a "dummy" federation to be referred to that server even if offine.</param>
     /// <returns>Federation class that you can interact with federation OR null if it failled.</returns>
-    public static async Task<Federation?> connect(string server, bool dummy = false) //FIXME
+    public static async Task<Federation?> Connect(string server, bool dummy = false) //FIXME
     {
         if (connectingFederations.Contains(server)) // If server is already attempting to connect, wait for it.
         {
@@ -163,7 +163,7 @@ class Federation
             var s = federations[server];
             if (s.connected == false)
             {
-                bool r = await s.reconnect();
+                bool r = await s.Reconnect();
                 if (r == false && dummy == false) return null;
             }
             return s;
@@ -171,7 +171,7 @@ class Federation
 
         connectingFederations.Add(server);
 
-        StringContent sc = new(JsonConvert.SerializeObject(new federationRequest() { serverurl = thisServerURL }));
+        StringContent sc = new(JsonConvert.SerializeObject(new FederationRequest() { serverurl = thisServerURL }));
         try
         {
             var res = await GetHttpClient().PostAsync(new Uri(new Uri(server), "federationrequest"), sc);
@@ -203,7 +203,7 @@ class Federation
     /// </summary>
     /// <param name="request">Request dictionary</param>
     /// <returns>Federation if success, null if mismatch.</returns>
-    public static Federation? getFromRequestObjDict(IDictionary<string, object> request)
+    public static Federation? GetFromRequestObjDict(IDictionary<string, object> request)
     {
         if (!request.ContainsKey("serverurl")) return null;
         if (!request.ContainsKey("id")) return null;
@@ -218,7 +218,7 @@ class Federation
     /// </summary>
     /// <param name="request">Request dictionary</param>
     /// <returns>Federation if success, null if mismatch.</returns>
-    public static Federation? getFromRequestStrDict(IDictionary<string, string> request)
+    public static Federation? GetFromRequestStrDict(IDictionary<string, string> request)
     {
         if (!request.ContainsKey("serverurl")) return null;
         if (!request.ContainsKey("id")) return null;
@@ -234,7 +234,7 @@ class Federation
     /// <param name="request">UpdateRecieveRequest which was parsed from the request.</param>
     /// <returns>Federation if success, null if mismatch.</returns>
 
-    public static Federation? getFromRequestURR(UpdateRecieveRequest request)
+    public static Federation? GetFromRequestURR(UpdateRecieveRequest request)
     {
         if (request.serverurl == null) return null;
         if (request.id == null) return null;
@@ -248,20 +248,20 @@ class Federation
     /// Reconnects to the federation. Does nothing while connected. So can be used before any action.
     /// </summary>
     /// <returns>Connection status</returns>
-    public async Task<bool> reconnect()
+    public async Task<bool> Reconnect()
     {
         if (connected == true) return true;
         await Task.Delay(1000);
         if (connected == true) return true;
         if (connected == null)
         {
-            while (connect == null)
+            while (connected == null)
             {
                 await Task.Delay(500);
             }
             return connected ?? false;
         }
-        StringContent sc = new(JsonConvert.SerializeObject(new federationRequest() { serverurl = thisServerURL }));
+        StringContent sc = new(JsonConvert.SerializeObject(new FederationRequest() { serverurl = thisServerURL }));
         try
         {
             var res = await GetHttpClient().PostAsync(new Uri(new Uri(serverURL), "federationrequest"), sc);
@@ -281,7 +281,7 @@ class Federation
             return false;
         }
     }
-    public void fedRequestReconnected(string fid)
+    public void FederationRequestReconnected(string fid)
     {
         id = fid;
         connected = true;
@@ -293,9 +293,9 @@ class Federation
     /// </summary>
     /// <param name="groupID">ID of group inside the remote.</param>
     /// <returns>Null if request failled, false if group doesn't exist, true if group exists but it's only viewable for members, Group class if it exists and is visible for this server.</returns>
-    public async Task<object?> getGroup(string groupID)
+    public async Task<object?> GetGroup(string groupID)
     {
-        if (!await reconnect()) return null;
+        if (!await Reconnect()) return null;
 
         StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, groupid = groupID }));
         try
@@ -314,7 +314,7 @@ class Federation
                 }
                 else
                 {
-                    handleStatus(ret);
+                    HandleStatus(ret);
                     return false;
                 }
             }
@@ -322,13 +322,13 @@ class Federation
             {
                 Group? group = JsonConvert.DeserializeObject<Group>(resbody);
                 if (group == null) return null;
-                fixGroup(group);
+                FixGroup(group);
                 return group;
             }
         }
         catch (Exception e)
         {
-            handleException(e);
+            HandleException(e);
             Console.WriteLine(e.ToString());
             return null;
         }
@@ -340,9 +340,9 @@ class Federation
     /// <param name="userID">ID of user that will join.</param>
     /// <param name="groupID">Group ID inside the remote.</param>
     /// <returns>True if joined, false if couldn't</returns>
-    public async Task<bool> joinGroup(string userID, string groupID)
+    public async Task<bool> JoinGroup(string userID, string groupID)
     {
-        if (!await reconnect()) return false;
+        if (!await Reconnect()) return false;
 
         StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, groupid = groupID, userid = userID }));
         try
@@ -360,7 +360,7 @@ class Federation
                 }
                 else
                 {
-                    handleStatus(ret);
+                    HandleStatus(ret);
                     return false;
                 }
             }
@@ -371,7 +371,7 @@ class Federation
         }
         catch (Exception e)
         {
-            handleException(e);
+            HandleException(e);
             Console.WriteLine(e.ToString());
             return false;
         }
@@ -383,9 +383,9 @@ class Federation
     /// <param name="userID">User ID that will leave.</param>
     /// <param name="groupID">Group ID in the remote.</param>
     /// <returns></returns>
-    public async Task<bool> leaveGroup(string userID, string groupID)
+    public async Task<bool> LeaveGroup(string userID, string groupID)
     {
-        if (!await reconnect()) return false;
+        if (!await Reconnect()) return false;
 
         StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, groupid = groupID, userid = userID }));
         try
@@ -403,7 +403,7 @@ class Federation
                 }
                 else
                 {
-                    handleStatus(ret);
+                    HandleStatus(ret);
                     return false;
                 }
             }
@@ -414,7 +414,7 @@ class Federation
         }
         catch (Exception e)
         {
-            handleException(e);
+            HandleException(e);
             Console.WriteLine(e.ToString());
             return false;
         }
@@ -425,9 +425,9 @@ class Federation
     /// </summary>
     /// <param name="chatID">ID of the chat in the remote.</param>
     /// <returns>Chat if done, null if fail.</returns>
-    public async Task<Chat?> getChat(string chatID)
+    public async Task<Chat?> GetChat(string chatID)
     {
-        if (!await reconnect()) return null;
+        if (!await Reconnect()) return null;
 
         StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, chatid = chatID }));
         try
@@ -439,7 +439,7 @@ class Federation
             if (ret == null) return null;
             if (ret.ContainsKey("status"))
             {
-                handleStatus(ret);
+                HandleStatus(ret);
                 return null;
             }
             else
@@ -450,7 +450,7 @@ class Federation
                 chat.chatID = chatID;
                 foreach (ChatMessage msg in chat.Values)
                 {
-                    fixMessage(msg);
+                    FixMessage(msg);
                 }
                 cachedUpdates.AddHook(chat);
                 return chat;
@@ -458,7 +458,7 @@ class Federation
         }
         catch (Exception e)
         {
-            handleException(e);
+            HandleException(e);
             Console.WriteLine(e.ToString());
             return null;
         }
@@ -471,7 +471,7 @@ class Federation
     /// <returns></returns>
     public async Task<UserProfile?> getUser(string userID)
     {
-        if (!await reconnect()) return null;
+        if (!await Reconnect()) return null;
 
         StringContent sc = new(JsonConvert.SerializeObject(new { uid = userID }));
         try
@@ -483,20 +483,20 @@ class Federation
             if (ret == null) return null;
             if (ret.ContainsKey("status"))
             {
-                handleStatus(ret);
+                HandleStatus(ret);
                 return null;
             }
             else
             {
                 UserProfile? profile = JsonConvert.DeserializeObject<UserProfile>(resbody);
                 if (profile == null) return null;
-                fixUserProfile(profile);
+                FixUserProfile(profile);
                 return profile;
             }
         }
         catch (Exception e)
         {
-            handleException(e);
+            HandleException(e);
             Console.WriteLine(e.ToString());
             return null;
         }
@@ -507,22 +507,22 @@ class Federation
     /// Edits the message for this server because values and stuff still point for remote.
     /// </summary>
     /// <param name="message">ChatMessage to fix</param>
-    public void fixMessage(ChatMessage message)
+    public void FixMessage(ChatMessage message)
     {
-        message.sender = fixUserID(message.sender);
+        message.senderUID = FixUserID(message.senderUID);
 
-        if (message.sender == "0")
+        if (message.senderUID == "0")
         {
             if (message.content.Contains("|"))
             {
                 string userid = message.content.Split("|")[1];
-                message.content = message.content.Replace(userid, fixUserID(userid));
+                message.content = message.content.Replace(userid, FixUserID(userid));
             }
         }
 
-        if (message.forwardedfrom != null)
+        if (message.forwardedFromUID != null)
         {
-            message.forwardedfrom = fixUserID(message.forwardedfrom);
+            message.forwardedFromUID = FixUserID(message.forwardedFromUID);
         }
 
 
@@ -531,10 +531,10 @@ class Federation
             MessageEmojiReactions reactions = new();
             foreach (var reaction in r.Value)
             {
-                reactions[fixUserID(reaction.Key)] = new()
+                reactions[FixUserID(reaction.Key)] = new()
                 {
-                    sender = fixUserID(reaction.Value.sender),
-                    time = reaction.Value.time,
+                    senderUID = FixUserID(reaction.Value.senderUID),
+                    sendTime = reaction.Value.sendTime,
                     reaction = reaction.Value.reaction
                 };
             }
@@ -557,7 +557,7 @@ class Federation
     /// </summary>
     /// <param name="userID"></param>
     /// <returns></returns>
-    public string fixUserID(string userID)
+    public string FixUserID(string userID)
     {
         string user;
         string userserver;
@@ -591,7 +591,7 @@ class Federation
     /// Fixes user profile (assuming it was from a remote server=
     /// </summary>
     /// <param name="profile">UserProfile to fix</param>
-    public void fixUserProfile(UserProfile profile)
+    public void FixUserProfile(UserProfile profile)
     {
         // fix picture
         profile.picture = profile.picture.Replace("%SERVER%", serverURL);
@@ -601,7 +601,7 @@ class Federation
     /// Fixes group info
     /// </summary>
     /// <param name="group">Group to fix</param>
-    public void fixGroup(Group group)
+    public void FixGroup(Group group)
     {
         // fix picture
         group.picture = group.picture.Replace("%SERVER%", serverURL);
@@ -609,11 +609,11 @@ class Federation
         ConcurrentDictionary<string, GroupMember> members = new();
         foreach (var member in group.members)
         {
-            string user = fixUserID(member.Key);
+            string user = FixUserID(member.Key);
             members[user] = new GroupMember()
             {
-                user = user,
-                jointime = member.Value.jointime,
+                userID = user,
+                joinTime = member.Value.joinTime,
                 role = member.Value.role
             };
         }

@@ -5,14 +5,8 @@ using System.IO;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-using ImageMagick;
-
 using System.Net;
-using System.Threading;
 using System.Text;
-using System.Threading.Tasks;
-
-using Konscious.Security.Cryptography;
 using System.Web;
 using System.Collections.Concurrent;
 
@@ -21,55 +15,16 @@ namespace PamukkyV3;
 internal class Pamukky
 {
     //  ---- Constants for stuff ----
-    // Thumbnail generation.
-    public const int thumbSize = 256;
-    public const int thumbQuality = 75;
     // Pamuk (user 0) profile, as string...
     public const string pamukProfile = "{\"name\":\"Pamuk\",\"picture\":\"\",\"description\":\"Birb!!!\"}"; //Direct reply for clients, no need to make class and make it json as it's always the same.
-    // Date serialization, do not change unless you apply it to clients too.
-    public const string datetimeFormat = "MM dd yyyy, HH:mm zzz";
 
     // ---- Caching ----
-    static ConcurrentDictionary<string, loginCred> loginCreds = new();
+    static ConcurrentDictionary<string, LoginCredential> loginCreds = new();
 
     //                          token                         updater names and value of it.
 
     // ---- Http ----
     static HttpListener _httpListener = new HttpListener();
-    
-    /// <summary>
-    /// Converts DateTime to Pamukky-like date string.
-    /// </summary>
-    /// <param name="date"></param>
-    /// <returns></returns>
-    public static string dateToString(DateTime date) {
-        return date.ToString(datetimeFormat);
-    }
-
-    /// <summary>
-    /// Uploaded file information.
-    /// </summary>
-    public class FileUpload
-    {
-        public string sender = "";
-        public string actualName = "";
-        public int size = 0;
-        public string contentType = "";
-    }
-
-    /// <summary>
-    /// What should server reply for /upload
-    /// </summary>
-    class FileUploadResponse
-    {
-        public string url = ""; //success
-        public string status;
-        public FileUploadResponse(string stat, string furl)
-        { //for easier creation
-            status = stat;
-            url = furl;
-        }
-    }
 
     /// <summary>
     /// Server response type for errors and actions that doesn't have any return
@@ -113,45 +68,12 @@ internal class Pamukky
     }
 
     /// <summary>
-    /// Hashes a password
-    /// </summary>
-    /// <param name="pass">Password</param>
-    /// <param name="uid">User ID that will be used as AssociatedData.</param>
-    /// <returns></returns>
-    static string hashPassword(string pass, string uid)
-    {
-        try
-        {
-            using (Argon2id argon2 = new Argon2id(Encoding.UTF8.GetBytes(pass)))
-            {
-                try
-                {
-                    argon2.Iterations = 5;
-                    argon2.MemorySize = 7;
-                    argon2.DegreeOfParallelism = 1;
-                    argon2.AssociatedData = Encoding.UTF8.GetBytes(uid);
-                    return Encoding.UTF8.GetString(argon2.GetBytes(128));
-                }
-                catch
-                {
-                    return ""; //In case account is older than when the algorithm was added, can also be used as a test account. Basically passwordless
-                }
-                finally
-                {
-                    argon2.Dispose(); // Memory eta bomba
-                }
-            }
-        }
-        catch { return ""; }
-    }
-
-    /// <summary>
     /// Gets login credentials from token or if preventBypass is false from email too.
     /// </summary>
     /// <param name="token">Token of the login or email (if preventBypass is true)</param>
     /// <param name="preventBypass"></param>
     /// <returns>loginCred if successful, null if "bypassed" or failled.</returns>
-    static async Task<loginCred?> GetLoginCred(string token, bool preventBypass = true) {
+    static async Task<LoginCredential?> GetLoginCred(string token, bool preventBypass = true) {
         //!preventbypass is when you wanna use the token to get other info
         if (token.Contains("@") && preventBypass) { //bypassing
             return null;
@@ -160,7 +82,7 @@ internal class Pamukky
             return loginCreds[token];
         }else {
             if (File.Exists("data/auth/" + token)) {
-                loginCred? up = JsonConvert.DeserializeObject<loginCred>(await File.ReadAllTextAsync("data/auth/" + token));
+                LoginCredential? up = JsonConvert.DeserializeObject<LoginCredential>(await File.ReadAllTextAsync("data/auth/" + token));
                 if (up != null) {
                     loginCreds[token] = up;
                     return up;
@@ -178,7 +100,7 @@ internal class Pamukky
     /// <returns></returns>
     public static async Task<string?> GetUIDFromToken(string token, bool preventBypass = true)
     {
-        loginCred? cred = await GetLoginCred(token, preventBypass);
+        LoginCredential? cred = await GetLoginCred(token, preventBypass);
         if (cred == null)
         {
             return null;
@@ -192,13 +114,13 @@ internal class Pamukky
     /// <param name="action">Type of the request</param>
     /// <param name="body">Body of the request.</param>
     /// <returns>Return of the action.</returns>
-    static async Task<ActionReturn> doAction(string action, string body)
+    static async Task<ActionReturn> DoAction(string action, string body)
     {
         string res = "";
         int statuscode = 200;
         if (action == "signup")
         {
-            var a = JsonConvert.DeserializeObject<loginCred>(body);
+            var a = JsonConvert.DeserializeObject<LoginCredential>(body);
             if (a != null)
             {
                 a.EMail = a.EMail.Trim();
@@ -217,7 +139,7 @@ internal class Pamukky
                             }
                             while (Directory.Exists("data/info/" + uid));
 
-                            a.Password = hashPassword(a.Password, uid);
+                            a.Password = Helpers.HashPassword(a.Password, uid);
 
                             string token = "";
                             do
@@ -240,7 +162,7 @@ internal class Pamukky
                             UserChatsList? chats = await UserChatsList.Get(uid); //get new user's chats list
                             if (chats != null)
                             {
-                                chatItem savedmessages = new()
+                                ChatItem savedmessages = new()
                                 { //automatically add saved messages for the user.
                                     user = uid,
                                     type = "user",
@@ -283,17 +205,17 @@ internal class Pamukky
         }
         else if (action == "login")
         {
-            var a = JsonConvert.DeserializeObject<loginCred>(body);
+            var a = JsonConvert.DeserializeObject<LoginCredential>(body);
             if (a != null)
             {
                 a.EMail = a.EMail.Trim();
                 if (File.Exists("data/auth/" + a.EMail))
                 {
-                    loginCred? lc = JsonConvert.DeserializeObject<loginCred>(await File.ReadAllTextAsync("data/auth/" + a.EMail));
+                    LoginCredential? lc = JsonConvert.DeserializeObject<LoginCredential>(await File.ReadAllTextAsync("data/auth/" + a.EMail));
                     if (lc != null)
                     {
                         string uid = lc.userID;
-                        a.Password = hashPassword(a.Password, uid);
+                        a.Password = Helpers.HashPassword(a.Password, uid);
                         if (lc.Password == a.Password && lc.EMail == a.EMail)
                         {
                             //Console.WriteLine("Logging in...");
@@ -341,10 +263,10 @@ internal class Pamukky
             {
                 if (a["password"].Trim().Length >= 6)
                 {
-                    loginCred? lc = await GetLoginCred(a["token"]);
+                    LoginCredential? lc = await GetLoginCred(a["token"]);
                     if (lc != null)
                     {
-                        if (lc.Password == hashPassword(a["oldpassword"], lc.userID))
+                        if (lc.Password == Helpers.HashPassword(a["oldpassword"], lc.userID))
                         {
                             /*string token = "";
                                 *                   do
@@ -354,7 +276,7 @@ internal class Pamukky
                         while (loginCreds.ContainsKey(token));*/
                             //File.Delete("data/auth/" + lc.token);
                             //lc.token = token;
-                            lc.Password = hashPassword(a["password"].Trim(), lc.userID);
+                            lc.Password = Helpers.HashPassword(a["password"].Trim(), lc.userID);
                             string astr = JsonConvert.SerializeObject(lc);
                             //File.WriteAllText("data/auth/" + token, astr);
                             File.WriteAllText("data/auth/" + lc.EMail, astr);
@@ -437,7 +359,7 @@ internal class Pamukky
                 UserProfile? up = await UserProfile.Get(a["uid"]);
                 if (up != null)
                 {
-                    res = up.getOnline();
+                    res = up.GetOnline();
                 }
                 else
                 {
@@ -462,7 +384,7 @@ internal class Pamukky
                     UserProfile? user = await UserProfile.Get(uid);
                     if (user != null)
                     {
-                        user.setOnline();
+                        user.SetOnline();
                     }
                     else
                     {
@@ -482,7 +404,7 @@ internal class Pamukky
                 res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
-        else if (action == "updateuser")
+        else if (action == "editprofile")
         { //User profile edit
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token"))
@@ -501,13 +423,13 @@ internal class Pamukky
                         {
                             a["picture"] = "";
                         }
-                        if (!a.ContainsKey("description"))
+                        if (!a.ContainsKey("bio"))
                         {
-                            a["description"] = "";
+                            a["bio"] = "";
                         }
                         profile.picture = a["picture"];
-                        profile.description = a["description"].Trim();
-                        profile.save();
+                        profile.bio = a["bio"].Trim();
+                        profile.Save();
                         res = JsonConvert.SerializeObject(new ServerResponse("done"));
                     }
                     else
@@ -536,7 +458,7 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    List<chatItem>? chats = await UserChatsList.Get(uid);
+                    List<ChatItem>? chats = await UserChatsList.Get(uid);
                     if (chats != null)
                     {
                         res = JsonConvert.SerializeObject(chats);
@@ -611,7 +533,7 @@ internal class Pamukky
                         switch (type)
                         {
                             case "chat":
-                                Chat? chat = await Chat.getChat(id);
+                                Chat? chat = await Chat.GetChat(id);
                                 if (chat != null)
                                 {
                                     updhooks.AddHook(chat);
@@ -670,7 +592,7 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    userConfig? userconfig = await userConfig.Get(uid);
+                    UserConfig? userconfig = await UserConfig.Get(uid);
                     if (userconfig != null)
                     {
                         res = JsonConvert.SerializeObject(userconfig.mutedChats);
@@ -701,7 +623,7 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken((a["token"] ?? "").ToString() ?? "");
                 if (uid != null)
                 {
-                    userConfig? userconfig = await userConfig.Get(uid);
+                    UserConfig? userconfig = await UserConfig.Get(uid);
                     if (userconfig != null)
                     {
                         string chatid = (a["chatid"] ?? "").ToString() ?? "";
@@ -754,13 +676,13 @@ internal class Pamukky
                     if (chatsu != null && chatsb != null)
                     {
                         string chatid = uidu + "-" + uidb;
-                        chatItem u = new()
+                        ChatItem u = new()
                         {
                             user = uidb,
                             type = "user",
                             chatid = chatid
                         };
-                        chatItem b = new()
+                        ChatItem b = new()
                         {
                             user = uidu,
                             type = "user",
@@ -798,14 +720,14 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Chat? chat = await Chat.getChat(a["chatid"]);
+                    Chat? chat = await Chat.GetChat(a["chatid"]);
                     if (chat != null)
                     {
-                        if (chat.canDo(uid, Chat.chatAction.Read))
+                        if (chat.CanDo(uid, Chat.ChatAction.Read))
                         {
                             int page = a.ContainsKey("page") ? int.Parse(a["page"]) : 0;
                             string prefix = "#" + (page * 48) + "-#" + ((page + 1) * 48);
-                            res = JsonConvert.SerializeObject(chat.getMessages(prefix).format());
+                            res = JsonConvert.SerializeObject(chat.GetMessages(prefix).FormatAll());
                         }
                         else
                         {
@@ -839,12 +761,12 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Chat? chat = await Chat.getChat(a["chatid"]);
+                    Chat? chat = await Chat.GetChat(a["chatid"]);
                     if (chat != null)
                     {
-                        if (chat.canDo(uid, Chat.chatAction.Read))
+                        if (chat.CanDo(uid, Chat.ChatAction.Read))
                         {
-                            res = JsonConvert.SerializeObject(chat.getMessages(a["prefix"]).format());
+                            res = JsonConvert.SerializeObject(chat.GetMessages(a["prefix"]).FormatAll());
                         }
                         else
                         {
@@ -878,12 +800,12 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Chat? chat = await Chat.getChat(a["chatid"]);
+                    Chat? chat = await Chat.GetChat(a["chatid"]);
                     if (chat != null)
                     {
-                        if (chat.canDo(uid, Chat.chatAction.Read))
+                        if (chat.CanDo(uid, Chat.ChatAction.Read))
                         {
-                            res = JsonConvert.SerializeObject(chat.getPinned().format());
+                            res = JsonConvert.SerializeObject(chat.GetPinnedMessages().FormatAll());
                         }
                         else
                         {
@@ -920,24 +842,23 @@ internal class Pamukky
                     string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                     if (uid != null)
                     {
-                        Chat? chat = await Chat.getChat(a["chatid"].ToString() ?? "");
+                        Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
                         if (chat != null)
                         {
-                            if (chat.canDo(uid, Chat.chatAction.Send))
+                            if (chat.CanDo(uid, Chat.ChatAction.Send))
                             {
                                 ChatMessage msg = new()
                                 {
-                                    sender = uid,
+                                    senderUID = uid,
                                     content = (a["content"].ToString() ?? "").Trim(),
-                                    replymsgid = a.ContainsKey("replymsg") ? a["replymsg"].ToString() : null,
-                                    files = files,
-                                    time = dateToString(DateTime.Now)
+                                    replyMessageID = a.ContainsKey("replymsg") ? a["replymsg"].ToString() : null,
+                                    files = files
                                 };
-                                chat.sendMessage(msg);
+                                chat.SendMessage(msg);
                                 var userstatus = UserStatus.Get(uid);
                                 if (userstatus != null)
                                 {
-                                    userstatus.setTyping(null);
+                                    userstatus.SetTyping(null);
                                 }
                                 res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             }
@@ -979,7 +900,7 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                 if (uid != null)
                 {
-                    Chat? chat = await Chat.getChat(a["chatid"].ToString() ?? "");
+                    Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
                     if (chat != null)
                     {
                         if (a["msgs"] is JArray)
@@ -988,10 +909,10 @@ internal class Pamukky
                             foreach (object msg in msgs)
                             {
                                 string? msgid = msg.ToString() ?? "";
-                                if (chat.canDo(uid, Chat.chatAction.Delete, msgid))
+                                if (chat.CanDo(uid, Chat.ChatAction.Delete, msgid))
                                 {
                                     //if (chat.ContainsKey(msgid)) {
-                                    chat.deleteMessage(msgid);
+                                    chat.DeleteMessage(msgid);
                                     //}
                                 }
                             }
@@ -1029,7 +950,7 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                 if (uid != null)
                 {
-                    Chat? chat = await Chat.getChat(a["chatid"].ToString() ?? "");
+                    Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
                     if (chat != null)
                     {
                         if (a["msgs"] is JArray)
@@ -1038,18 +959,17 @@ internal class Pamukky
                             foreach (object msg in msgs)
                             {
                                 string? msgid = msg.ToString() ?? "";
-                                if (chat.canDo(uid, Chat.chatAction.Pin, msgid))
+                                if (chat.CanDo(uid, Chat.ChatAction.Pin, msgid))
                                 {
-                                    bool pinned = chat.pinMessage(msgid);
-                                    if (chat.canDo(uid, Chat.chatAction.Send))
+                                    bool pinned = chat.PinMessage(msgid);
+                                    if (chat.CanDo(uid, Chat.ChatAction.Send))
                                     {
                                         ChatMessage message = new()
                                         {
-                                            sender = "0",
-                                            content = (pinned ? "" : "UN") + "PINNEDMESSAGE|" + uid + "|" + msgid,
-                                            time = dateToString(DateTime.Now)
+                                            senderUID = "0",
+                                            content = (pinned ? "" : "UN") + "PINNEDMESSAGE|" + uid + "|" + msgid
                                         };
-                                        chat.sendMessage(message);
+                                        chat.SendMessage(message);
                                     }
                                 }
                             }
@@ -1087,15 +1007,15 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                 if (uid != null)
                 {
-                    Chat? chat = await Chat.getChat(a["chatid"].ToString() ?? "");
+                    Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
                     if (chat != null)
                     {
                         string? msgid = a["msgid"].ToString() ?? "";
                         string? reaction = a["reaction"].ToString() ?? "";
-                        if (chat.canDo(uid, Chat.chatAction.React, msgid))
+                        if (chat.CanDo(uid, Chat.ChatAction.React, msgid))
                         {
                             //if (chat.ContainsKey(msgid)) {
-                            res = JsonConvert.SerializeObject(chat.reactMessage(msgid, uid, reaction));
+                            res = JsonConvert.SerializeObject(chat.ReactMessage(msgid, uid, reaction));
                             //}else {
                             //    statuscode = 404;
                             //    res = JsonConvert.SerializeObject(new serverResponse("error", "NOMSG", "Message not found"));
@@ -1133,10 +1053,10 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                 if (uid != null)
                 {
-                    Chat? chat = await Chat.getChat(a["chatid"].ToString() ?? "");
+                    Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
                     if (chat != null)
                     {
-                        if (chat.canDo(uid, Chat.chatAction.Read))
+                        if (chat.CanDo(uid, Chat.ChatAction.Read))
                         {
                             if (a["msgs"] is JArray)
                             {
@@ -1146,17 +1066,16 @@ internal class Pamukky
                                     string? msgid = msg.ToString() ?? "";
                                     if (chat.ContainsKey(msgid))
                                     {
-                                        Chat? uchat = await Chat.getChat(uid + "-" + uid);
+                                        Chat? uchat = await Chat.GetChat(uid + "-" + uid);
                                         if (uchat != null)
                                         {
                                             ChatMessage message = new()
                                             {
-                                                sender = chat[msgid].sender,
+                                                senderUID = chat[msgid].senderUID,
                                                 content = chat[msgid].content,
-                                                files = chat[msgid].files,
-                                                time = dateToString(DateTime.Now)
+                                                files = chat[msgid].files
                                             };
-                                            uchat.sendMessage(message, false);
+                                            uchat.SendMessage(message, false);
 
                                         }
                                     }
@@ -1201,10 +1120,10 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                 if (uid != null)
                 {
-                    Chat? chat = await Chat.getChat(a["chatid"].ToString() ?? "");
+                    Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
                     if (chat != null)
                     {
-                        if (chat.canDo(uid, Chat.chatAction.Read))
+                        if (chat.CanDo(uid, Chat.ChatAction.Read))
                         {
                             if (a["msgs"] is JArray)
                             {
@@ -1219,20 +1138,19 @@ internal class Pamukky
                                             var chats = (JArray)a["tochats"];
                                             foreach (object chatid in chats)
                                             {
-                                                Chat? uchat = await Chat.getChat(chatid.ToString() ?? "");
+                                                Chat? uchat = await Chat.GetChat(chatid.ToString() ?? "");
                                                 if (uchat != null)
                                                 {
-                                                    if (uchat.canDo(uid, Chat.chatAction.Send))
+                                                    if (uchat.CanDo(uid, Chat.ChatAction.Send))
                                                     {
                                                         ChatMessage message = new()
                                                         {
-                                                            forwardedfrom = chat[msgid].sender,
-                                                            sender = uid,
+                                                            forwardedFromUID = chat[msgid].senderUID,
+                                                            senderUID = uid,
                                                             content = chat[msgid].content,
-                                                            files = chat[msgid].files,
-                                                            time = dateToString(DateTime.Now)
+                                                            files = chat[msgid].files
                                                         };
-                                                        uchat.sendMessage(message);
+                                                        uchat.SendMessage(message);
                                                     }
                                                 }
                                             }
@@ -1276,10 +1194,10 @@ internal class Pamukky
                     string? uid = await GetUIDFromToken(a["token"]);
                     if (uid != null)
                     {
-                        Chat? chat = await Chat.getChat(a["id"]);
+                        Chat? chat = await Chat.GetChat(a["id"]);
                         if (chat != null)
                         {
-                            if (chat.canDo(uid, Chat.chatAction.Read))
+                            if (chat.CanDo(uid, Chat.ChatAction.Read))
                             { //Check if user can even "read" it at all
                                 string requestMode = "normal";
                                 if (a.ContainsKey("mode"))
@@ -1289,13 +1207,13 @@ internal class Pamukky
 
                                 if (requestMode == "updater") // Updater mode will wait for a new message. "since" shouldn't work here.
                                 {
-                                    res = JsonConvert.SerializeObject(await chat.waitForUpdates());
+                                    res = JsonConvert.SerializeObject(await chat.WaitForUpdates());
                                 }
                                 else
                                 {
                                     if (a.ContainsKey("since"))
                                     {
-                                        res = JsonConvert.SerializeObject(chat.getUpdates(long.Parse(a["since"])));
+                                        res = JsonConvert.SerializeObject(chat.GetUpdates(long.Parse(a["since"])));
                                     }
                                     else
                                     {
@@ -1341,15 +1259,15 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Chat? chat = await Chat.getChat(a["chatid"]);
+                    Chat? chat = await Chat.GetChat(a["chatid"]);
                     if (chat != null)
                     {
-                        if (chat.canDo(uid, Chat.chatAction.Send))
+                        if (chat.CanDo(uid, Chat.ChatAction.Send))
                         { //Ofc, if the user has the permission to send at the chat
                             var userstatus = UserStatus.Get(uid);
                             if (userstatus != null)
                             {
-                                userstatus.setTyping(chat.chatID);
+                                userstatus.SetTyping(chat.chatID);
                                 res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             }
                             else
@@ -1390,10 +1308,10 @@ internal class Pamukky
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
-                    Chat? chat = await Chat.getChat(a["chatid"]);
+                    Chat? chat = await Chat.GetChat(a["chatid"]);
                     if (chat != null)
                     {
-                        if (chat.canDo(uid, Chat.chatAction.Read))
+                        if (chat.CanDo(uid, Chat.ChatAction.Read))
                         { //Ofc, if the user has the permission to read the chat
                             string requestMode = "normal";
                             if (a.ContainsKey("mode"))
@@ -1401,7 +1319,7 @@ internal class Pamukky
                                 requestMode = a["mode"];
                             }
                             if (requestMode == "updater")
-                                res = JsonConvert.SerializeObject(await chat.waitForTypingUpdates());
+                                res = JsonConvert.SerializeObject(await chat.WaitForTypingUpdates());
                             else
                                 res = JsonConvert.SerializeObject(chat.typingUsers);
                         }
@@ -1459,8 +1377,7 @@ internal class Pamukky
                             name = a["name"].Trim(),
                             picture = a["picture"],
                             info = a["info"].Trim(),
-                            owner = uid,
-                            time = dateToString(DateTime.Now),
+                            creatorUID = uid,
                             roles = new()
                             { //Default roles
                                 ["Owner"] = new GroupRole()
@@ -1525,7 +1442,7 @@ internal class Pamukky
                                 }
                             }
                         };
-                        await g.addUser(uid, "Owner");
+                        await g.AddUser(uid, "Owner");
                         g.Save();
                         Group.groupsCache[id] = g;
                         Dictionary<string, string> response = new()
@@ -1561,14 +1478,14 @@ internal class Pamukky
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
-                    if (gp.canDo(uid, Group.groupAction.Read))
+                    if (gp.CanDo(uid, Group.groupAction.Read))
                     {
                         res = JsonConvert.SerializeObject(new GroupInfo()
                         {
                             name = gp.name,
                             info = gp.info,
                             picture = gp.picture,
-                            publicgroup = gp.publicgroup
+                            publicGroup = gp.publicGroup
                         });
                     }
                     else
@@ -1611,14 +1528,14 @@ internal class Pamukky
                         Group? gp = await Group.Get(a["id"]);
                         if (gp != null)
                         {
-                            if (gp.canDo(uid, Group.groupAction.Read))
+                            if (gp.CanDo(uid, Group.groupAction.Read))
                             {
                                 res = JsonConvert.SerializeObject(new GroupInfo()
                                 {
                                     name = gp.name,
                                     info = gp.info,
                                     picture = gp.picture,
-                                    publicgroup = gp.publicgroup
+                                    publicGroup = gp.publicGroup
                                 });
                             }
                             else
@@ -1650,7 +1567,7 @@ internal class Pamukky
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
-                    if (gp.canDo(uid, Group.groupAction.Read))
+                    if (gp.CanDo(uid, Group.groupAction.Read))
                     {
                         res = JsonConvert.SerializeObject(gp.members);
                     }
@@ -1681,7 +1598,7 @@ internal class Pamukky
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
-                    if (gp.canDo(uid, Group.groupAction.Read))
+                    if (gp.CanDo(uid, Group.groupAction.Read))
                     {
                         res = JsonConvert.SerializeObject(gp.bannedMembers);
                     }
@@ -1712,7 +1629,7 @@ internal class Pamukky
                 string uid = await GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                 if (gp != null)
                 {
-                    if (gp.canDo(uid, Group.groupAction.Read))
+                    if (gp.CanDo(uid, Group.groupAction.Read))
                     {
                         res = gp.members.Count.ToString();
                     }
@@ -1743,7 +1660,7 @@ internal class Pamukky
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
-                    if (gp.canDo(uid, Group.groupAction.Read))
+                    if (gp.CanDo(uid, Group.groupAction.Read))
                     {
                         res = JsonConvert.SerializeObject(gp.roles);
                     }
@@ -1776,14 +1693,14 @@ internal class Pamukky
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        var role = gp.getUserRole(uid);
+                        var role = gp.GetUserRole(uid);
                         if (role != null)
                         {
                             res = JsonConvert.SerializeObject(role);
                         }
                         else
                         {
-                            if (gp.publicgroup)
+                            if (gp.publicGroup)
                             {
                                 res = JsonConvert.SerializeObject(new GroupRole()
                                 {
@@ -1834,7 +1751,7 @@ internal class Pamukky
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (await gp.addUser(uid))
+                        if (await gp.AddUser(uid))
                         {
                             Dictionary<string, string> response = new()
                             {
@@ -1878,8 +1795,8 @@ internal class Pamukky
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        Chat? chat = await Chat.getChat(gp.groupID);
-                        if (await gp.removeUser(uid))
+                        Chat? chat = await Chat.GetChat(gp.groupID);
+                        if (await gp.RemoveUser(uid))
                         {
                             gp.Save();
                             res = JsonConvert.SerializeObject(new ServerResponse("done"));
@@ -1919,9 +1836,9 @@ internal class Pamukky
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (gp.canDo(uid, Group.groupAction.Kick, a["uid"] ?? ""))
+                        if (gp.CanDo(uid, Group.groupAction.Kick, a["uid"] ?? ""))
                         {
-                            if (await gp.removeUser(a["uid"] ?? ""))
+                            if (await gp.RemoveUser(a["uid"] ?? ""))
                             {
                                 gp.Save();
                                 res = JsonConvert.SerializeObject(new ServerResponse("done"));
@@ -1967,9 +1884,9 @@ internal class Pamukky
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (gp.canDo(uid, Group.groupAction.Ban, a["uid"] ?? ""))
+                        if (gp.CanDo(uid, Group.groupAction.Ban, a["uid"] ?? ""))
                         {
-                            if (await gp.banUser(a["uid"] ?? ""))
+                            if (await gp.BanUser(a["uid"] ?? ""))
                             {
                                 gp.Save();
                                 res = JsonConvert.SerializeObject(new ServerResponse("done"));
@@ -2015,9 +1932,9 @@ internal class Pamukky
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (gp.canDo(uid, Group.groupAction.Ban, a["uid"] ?? ""))
+                        if (gp.CanDo(uid, Group.groupAction.Ban, a["uid"] ?? ""))
                         {
-                            gp.unbanUser(a["uid"] ?? "");
+                            gp.UnbanUser(a["uid"] ?? "");
                             gp.Save();
                         }
                         else
@@ -2055,7 +1972,7 @@ internal class Pamukky
                     Group? gp = await Group.Get(a["groupid"].ToString() ?? "");
                     if (gp != null)
                     {
-                        if (gp.canDo(uid, Group.groupAction.EditGroup))
+                        if (gp.CanDo(uid, Group.groupAction.EditGroup))
                         {
                             if (a.ContainsKey("name") && (a["name"].ToString() ?? "").Trim() != "")
                             {
@@ -2071,7 +1988,7 @@ internal class Pamukky
                             }
                             if (a.ContainsKey("publicgroup") && a["publicgroup"] is bool)
                             {
-                                gp.publicgroup = (bool)a["publicgroup"];
+                                gp.publicGroup = (bool)a["publicgroup"];
                             }
                             if (a.ContainsKey("roles"))
                             {
@@ -2093,18 +2010,17 @@ internal class Pamukky
                             };
                             res = JsonConvert.SerializeObject(response);
                             gp.Save();
-                            Chat? chat = await Chat.getChat(gp.groupID);
+                            Chat? chat = await Chat.GetChat(gp.groupID);
                             if (chat != null)
                             {
-                                if (chat.canDo(uid, Chat.chatAction.Send))
+                                if (chat.CanDo(uid, Chat.ChatAction.Send))
                                 {
                                     ChatMessage message = new()
                                     {
-                                        sender = "0",
-                                        content = "EDITGROUP|" + uid,
-                                        time = dateToString(DateTime.Now)
+                                        senderUID = "0",
+                                        content = "EDITGROUP|" + uid
                                     };
-                                    chat.sendMessage(message);
+                                    chat.SendMessage(message);
                                 }
                             }
                         }
@@ -2132,7 +2048,7 @@ internal class Pamukky
                 res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
-        else if (action == "edituser")
+        else if (action == "editmember")
         { //Edits role of user in the group.
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid") && a.ContainsKey("role"))
@@ -2143,14 +2059,14 @@ internal class Pamukky
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (gp.canDo(uid, Group.groupAction.EditUser, a["userid"]))
+                        if (gp.CanDo(uid, Group.groupAction.EditUser, a["userid"]))
                         {
                             if (gp.members.ContainsKey(a["userid"]))
                             {
                                 if (gp.roles.ContainsKey(a["role"]))
                                 {
                                     var crole = gp.roles[a["role"]];
-                                    var curole = gp.getUserRole(uid);
+                                    var curole = gp.GetUserRole(uid);
                                     if (curole != null)
                                     {
                                         if (crole.AdminOrder >= curole.AdminOrder)
@@ -2253,7 +2169,7 @@ internal class Pamukky
                         ConcurrentDictionary<string, ActionReturn> responses = new();
                         foreach (var request in actions)
                         {
-                            ActionReturn actionreturn = await doAction(request.Key.Split("|")[0], request.Value);
+                            ActionReturn actionreturn = await DoAction(request.Key.Split("|")[0], request.Value);
                             responses[request.Key] = actionreturn;
                         }
                         res = JsonConvert.SerializeObject(responses);
@@ -2262,7 +2178,7 @@ internal class Pamukky
                 #region Federation
                 else if (url == "federationrequest")
                 {
-                    federationRequest? request = JsonConvert.DeserializeObject<federationRequest>(body);
+                    FederationRequest? request = JsonConvert.DeserializeObject<FederationRequest>(body);
                     if (request != null)
                     {
                         if (request.serverurl != null)
@@ -2277,7 +2193,7 @@ internal class Pamukky
                                     string id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
                                     if (Federation.federations.ContainsKey(request.serverurl))
                                     {
-                                        Federation.federations[request.serverurl].fedRequestReconnected(id);
+                                        Federation.federations[request.serverurl].FederationRequestReconnected(id);
                                     }
                                     else
                                     {
@@ -2316,7 +2232,7 @@ internal class Pamukky
                     Dictionary<string, string>? request = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
                     if (request != null)
                     {
-                        Federation? fed = Federation.getFromRequestStrDict(request);
+                        Federation? fed = Federation.GetFromRequestStrDict(request);
                         if (fed != null) {
                             if (request.ContainsKey("groupid"))
                             {
@@ -2325,7 +2241,7 @@ internal class Pamukky
                                 if (gp != null)
                                 {
                                     bool showfullinfo = false;
-                                    if (gp.publicgroup)
+                                    if (gp.publicGroup)
                                     {
                                         showfullinfo = true;
                                     }
@@ -2377,7 +2293,7 @@ internal class Pamukky
                     Dictionary<string, string>? request = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
                     if (request != null)
                     {
-                        Federation? fed = Federation.getFromRequestStrDict(request);
+                        Federation? fed = Federation.GetFromRequestStrDict(request);
                         if (fed != null)
                         {
                             if (request.ContainsKey("groupid"))
@@ -2388,7 +2304,7 @@ internal class Pamukky
                                     Group? gp = await Group.Get(id);
                                     if (gp != null)
                                     {
-                                        bool stat = await gp.addUser(request["userid"] + "@" + fed.serverURL);
+                                        bool stat = await gp.AddUser(request["userid"] + "@" + fed.serverURL);
                                         if (stat)
                                         {
                                             gp.Save();
@@ -2430,7 +2346,7 @@ internal class Pamukky
                     Dictionary<string, string>? request = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
                     if (request != null)
                     {
-                        Federation? fed = Federation.getFromRequestStrDict(request);
+                        Federation? fed = Federation.GetFromRequestStrDict(request);
                         if (fed != null)
                         {
                             if (request.ContainsKey("groupid"))
@@ -2441,7 +2357,7 @@ internal class Pamukky
                                     Group? gp = await Group.Get(id);
                                     if (gp != null)
                                     {
-                                        bool stat = await gp.removeUser(request["userid"] + "@" + fed.serverURL);
+                                        bool stat = await gp.RemoveUser(request["userid"] + "@" + fed.serverURL);
                                         if (stat)
                                         {
                                             gp.Save();
@@ -2483,16 +2399,16 @@ internal class Pamukky
                     Dictionary<string, string>? request = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
                     if (request != null)
                     {
-                        Federation? fed = Federation.getFromRequestStrDict(request);
+                        Federation? fed = Federation.GetFromRequestStrDict(request);
                         if (fed != null) {
                             if (request.ContainsKey("chatid"))
                             {
                                 string id = request["chatid"].Split("@")[0];
-                                Chat? chat = await Chat.getChat(id);
+                                Chat? chat = await Chat.GetChat(id);
                                 if (chat != null)
                                 {
                                     bool showfullinfo = false;
-                                    if (chat.group.publicgroup)
+                                    if (chat.group.publicGroup)
                                     {
                                         showfullinfo = true;
                                     }
@@ -2547,7 +2463,7 @@ internal class Pamukky
                     UpdateRecieveRequest? request = JsonConvert.DeserializeObject<UpdateRecieveRequest>(body);
                     if (request != null)
                     {
-                        Federation? fed = Federation.getFromRequestURR(request);
+                        Federation? fed = Federation.GetFromRequestURR(request);
                         if (fed != null)
                         {
                             if (request.updates != null)
@@ -2560,10 +2476,10 @@ internal class Pamukky
                                     { 
                                         string id = target.Split("@")[0];
                                         Console.WriteLine(target);
-                                        Chat? chat = await Chat.getChat(id + "@" + fed.serverURL);
+                                        Chat? chat = await Chat.GetChat(id + "@" + fed.serverURL);
                                         if (chat == null)
                                         {
-                                            chat = await Chat.getChat(id);
+                                            chat = await Chat.GetChat(id);
                                         }
                                         if (chat != null)
                                         {
@@ -2574,14 +2490,14 @@ internal class Pamukky
                                                 if (upd.Key.StartsWith("TYPING|"))
                                                 {
                                                     // Get the typing user and fix id
-                                                    string user = fed.fixUserID(upd.Key.Split("|")[1]);
+                                                    string user = fed.FixUserID(upd.Key.Split("|")[1]);
                                                     if ((bool)upd.Value) // Typing
                                                     {
-                                                        chat.setTyping(user);
+                                                        chat.SetTyping(user);
                                                     }
                                                     else // Not typing
                                                     {
-                                                        chat.remTyping(user);
+                                                        chat.RemoveTyping(user);
                                                     }
                                                 }
                                                 else
@@ -2612,17 +2528,17 @@ internal class Pamukky
 
                                                         ChatMessage msg = new ChatMessage()
                                                         {
-                                                            sender = (update["sender"] ?? "").ToString() ?? "",
+                                                            senderUID = (update["sender"] ?? "").ToString() ?? "",
                                                             content = (update["content"] ?? "").ToString() ?? "",
-                                                            time = (update["time"] ?? "").ToString() ?? "",
-                                                            replymsgid = update.ContainsKey("replymsgid") ? update["replymsgid"] == null ? null : (update["replymsgid"] ?? "").ToString() : null,
-                                                            forwardedfrom = forwardedFrom,
+                                                            sendTime = (DateTime)update["time"],
+                                                            replyMessageID = update.ContainsKey("replymsgid") ? update["replymsgid"] == null ? null : (update["replymsgid"] ?? "").ToString() : null,
+                                                            forwardedFromUID = forwardedFrom,
                                                             files = update.ContainsKey("files") && (update["files"] is JArray) ? ((JArray?)update["files"] ?? new JArray()).ToObject<List<string>>() : null,
-                                                            pinned = update["pinned"] != null ? (bool?)update["pinned"] ?? false : false,
+                                                            isPinned = update["pinned"] != null ? (bool?)update["pinned"] ?? false : false,
                                                             reactions = update.ContainsKey("reactions") && (update["reactions"] is JObject) ? ((JObject?)update["reactions"] ?? new JObject()).ToObject<MessageReactions>() ?? new MessageReactions() : new MessageReactions(),
                                                         };
-                                                        fed.fixMessage(msg);
-                                                        chat.sendMessage(msg, true, mid);
+                                                        fed.FixMessage(msg);
+                                                        chat.SendMessage(msg, true, mid);
                                                     }
                                                     else if (eventn.StartsWith("REACT"))
                                                     {
@@ -2631,21 +2547,21 @@ internal class Pamukky
                                                             if (update["id"] != null && update["userID"] != null && update["reaction"] != null)
                                                             {
                                                                 Console.WriteLine("c");
-                                                                chat.reactMessage(mid, fed.fixUserID((update["userID"] ?? "").ToString() ?? ""), (update["reaction"] ?? "").ToString() ?? "", eventn == "REACT");
+                                                                chat.ReactMessage(mid, fed.FixUserID((update["userID"] ?? "").ToString() ?? ""), (update["reaction"] ?? "").ToString() ?? "", eventn == "REACT");
                                                             }
                                                         }
                                                     }
                                                     else if (eventn == "DELETED")
                                                     {
-                                                        chat.deleteMessage(mid);
+                                                        chat.DeleteMessage(mid);
                                                     }
                                                     else if (eventn == "PINNED")
                                                     {
-                                                        chat.pinMessage(mid, true);
+                                                        chat.PinMessage(mid, true);
                                                     }
                                                     else if (eventn == "UNPINNED")
                                                     {
-                                                        chat.pinMessage(mid, false);
+                                                        chat.PinMessage(mid, false);
                                                     }
                                                 }
                                             }
@@ -2674,7 +2590,7 @@ internal class Pamukky
                 #endregion
                 else
                 {
-                    ActionReturn actionreturn = await doAction(url, body);
+                    ActionReturn actionreturn = await DoAction(url, body);
                     statuscode = actionreturn.statuscode;
                     res = actionreturn.res;
                 }
@@ -2741,7 +2657,7 @@ internal class Pamukky
                                 context.Response.Close();
                                 string extension = u.contentType.Split("/")[1];
                                 if (extension == "png" || extension == "jpg" || extension == "jpeg" || extension == "gif" || extension == "bmp")
-                                    mediaProcesserJobs.Add(id);
+                                    MediaProcesser.AddJob(id);
                             }
                             else
                             {
@@ -2819,7 +2735,7 @@ internal class Pamukky
                                 }
                                 else
                                 {
-                                    if (!mediaProcesserJobs.Contains(file)) mediaProcesserJobs.Add(file); //Generate it for next visits and current one
+                                    MediaProcesser.AddJob(file); //Generate it for next visits and current one
                                     while (!File.Exists(path))
                                     {
                                         await Task.Delay(1000);
@@ -2862,22 +2778,22 @@ internal class Pamukky
     }
 
     /// <summary>
-    /// Handles new http calls.
+    /// Handles new HTTP calls.
     /// </summary>
     /// <param name="result"></param>
-    static void respondCall(IAsyncResult result)
+    static void RespondToHTTPCall(IAsyncResult result)
     {
         HttpListener? listener = (HttpListener?)result.AsyncState;
         if (listener == null) return;
         HttpListenerContext? context = listener.EndGetContext(result);
-        _httpListener.BeginGetContext(new AsyncCallback(respondCall), _httpListener);
+        _httpListener.BeginGetContext(new AsyncCallback(RespondToHTTPCall), _httpListener);
         if (context != null)
         {
             respondToRequest(context);
         }
     }
 
-    static void saveData() {
+    static void SaveData() {
         Console.WriteLine("Saving Data...");
         Console.WriteLine("Saving Chats...");
         foreach (var c in Chat.chatsCache) { // Save chats in memory to files
@@ -2890,40 +2806,14 @@ internal class Pamukky
         }
     }
 
-    static void autoSaveTick() {
+    static void AutoSaveTick() {
         Task.Delay(300000).ContinueWith((task) => { //save after 5 mins and recall
-            saveData();
-            autoSaveTick();
+            SaveData();
+            AutoSaveTick();
         });
     }
 
-    static List<string> mediaProcesserJobs = new();
-
-    static void mediaProcesser() { //thread function for processing media
-        Console.WriteLine("mediaProcesser thread started!");
-        while (!exit) {
-            if (mediaProcesserJobs.Count > 0)
-            try {
-                string job = mediaProcesserJobs[0];
-                mediaProcesserJobs.RemoveAt(0);
-                Console.WriteLine(job);
-                using (var image = new MagickImage("data/upload/" + job + ".file"))
-                {
-                    if (image.Width > thumbSize || image.Height > thumbSize) {
-                        image.Resize(thumbSize, thumbSize);
-                        image.Strip();
-                    }
-                    image.Quality = thumbQuality;
-                    image.Write("data/upload/" + job + ".thumb");
-                }
-            }catch (Exception e) {
-                Console.WriteLine(e.ToString());
-            }
-            Thread.Sleep(100); //Sleep to save cpu
-        }
-    }
-
-    static bool exit = false;
+    public static bool exit = false;
 
     static void Main(string[] args)
     {
@@ -2976,10 +2866,11 @@ internal class Pamukky
         _httpListener.Start();
         Console.WriteLine("Server started. On ports " + HTTPport + " and " + HTTPSport);
         // Start responding for server
-        _httpListener.BeginGetContext(new AsyncCallback(respondCall),_httpListener);
+        _httpListener.BeginGetContext(new AsyncCallback(RespondToHTTPCall),_httpListener);
         Console.WriteLine("Type help for help.");
-        autoSaveTick(); // Start the autosave ticker
-        new Thread(mediaProcesser).Start();
+        AutoSaveTick(); // Start the autosave ticker
+
+        MediaProcesser.StartThread(); // Start a (single) mediaprocesser thread.
 
         // CLI
         Console.WriteLine("Pamukky  Copyright (C) 2025  HAKANKOKCU");
@@ -2994,7 +2885,7 @@ internal class Pamukky
                     exit = true;
                     break;
                 case "save":
-                    saveData();
+                    SaveData();
                     break;
                 case "help":
                     Console.WriteLine("help   Shows this menu");
@@ -3004,6 +2895,6 @@ internal class Pamukky
             }
         }
         // After user wants to exit, save "cached" data
-        saveData();
+        SaveData();
     }
 }

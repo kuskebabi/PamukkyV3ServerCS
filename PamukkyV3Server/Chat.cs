@@ -9,14 +9,41 @@ namespace PamukkyV3;
 /// </summary>
 class ChatMessage
 { // Chat message.
-    public string sender = "";
+    public string senderUID = "";
     public string content = "";
-    public string time = "";
-    public string? replymsgid;
+    public DateTime sendTime = DateTime.Now;
+    public string? replyMessageID;
     public List<string>? files;
-    public string? forwardedfrom;
+    public string? forwardedFromUID;
     public MessageReactions reactions = new();
-    public bool pinned = false;
+    public bool isPinned = false;
+
+    #region Backwards compatibility
+    public string sender
+    {
+        set { senderUID = value; }
+    }
+
+    public string? replymsgid
+    {
+        set { replyMessageID = value; }
+    }
+
+    public string? forwardedfrom
+    {
+        set { forwardedFromUID = value; }
+    }
+
+    public bool pinned
+    {
+        set { isPinned = value; }
+    }
+
+    public string time
+    {
+        set { sendTime = Helpers.StringToDate(value); }
+    }
+    #endregion
 }
 
 /// <summary>
@@ -25,16 +52,37 @@ class ChatMessage
 /// </summary>
 class MessageReaction
 {
+    /// <summary>
+    /// Emoji of the reaction.
+    /// </summary>
     public string reaction = "";
-    public string sender = "";
-    public string time = "";
+    /// <summary>
+    /// ID of the user that sent it
+    /// </summary>
+    public string senderUID = "";
+    /// <summary>
+    /// The date of when reaction was sent.
+    /// </summary>
+    public DateTime sendTime;
+
+    #region Backwards compatibility
+    public string sender
+    {
+        set { senderUID = value; }
+    }
+
+    public string time
+    {
+        set { sendTime = Helpers.StringToDate(value); }
+    }
+    #endregion
 }
 
 /// <summary>
 /// Class for reactions for a emoji,
 /// MessageReactions[] > MessageEmojiReactions[] > MessageReaction
 /// </summary>
-class MessageEmojiReactions : ConcurrentDictionary<string, MessageReaction> { } //Single reaction emoji
+class MessageEmojiReactions : ConcurrentDictionary<string, MessageReaction> { }
 
 /// <summary>
 /// Class for handling all message reactions.
@@ -61,7 +109,7 @@ class MessageReactions : ConcurrentDictionary<string, MessageEmojiReactions>
     }
 
     /// <summary>
-    /// Get MessageEmojiReactions
+    /// Gets MessageEmojiReactions and creates new one if doesn't exist.
     /// </summary>
     /// <param name="reaction">Emoji for reactions</param>
     /// <param name="addNewToDict">Sets if the emoji should be added to the dictionary.</param>
@@ -79,7 +127,7 @@ class MessageReactions : ConcurrentDictionary<string, MessageEmojiReactions>
 }
 
 /// <summary>
-/// Chat file/attachment structure
+/// Chat file/attachment structure that is outputted from message formatter.
 /// </summary>
 class ChatFile
 {
@@ -94,8 +142,8 @@ class ChatFile
 class ChatMessageFormatted : ChatMessage
 { // Chat message formatted for client sending.
     //public profileShort? senderuser; REMOVED. Data waste.
-    public string? replymsgcontent;
-    public string? replymsgsender;
+    public string? replyMessageContent;
+    public string? replyMessageSender;
 
     public List<ChatFile>? gImages;
     public List<ChatFile>? gVideos;
@@ -104,14 +152,14 @@ class ChatMessageFormatted : ChatMessage
     //public string? forwardedname; REMOVED. Data waste.
     public ChatMessageFormatted(ChatMessage msg)
     {
-        sender = msg.sender;
+        senderUID = msg.senderUID;
         content = msg.content;
-        time = msg.time;
-        replymsgid = msg.replymsgid;
+        sendTime = msg.sendTime;
+        replyMessageID = msg.replyMessageID;
         files = msg.files;
         reactions = msg.reactions;
-        forwardedfrom = msg.forwardedfrom;
-        pinned = msg.pinned;
+        forwardedFromUID = msg.forwardedFromUID;
+        isPinned = msg.isPinned;
         //senderuser = profileShort.fromProfile(userProfile.Get(sender));
         //if (forwardedfrom != null) {
         //    forwardedname = profileShort.fromProfile(userProfile.Get(forwardedfrom)).name;
@@ -127,7 +175,7 @@ class ChatMessageFormatted : ChatMessage
                     string file = fil.Replace("%SERVER%getmedia?file=", "data/upload/"); //Get path
                     if (File.Exists(file))
                     {
-                        Pamukky.FileUpload? f = JsonConvert.DeserializeObject<Pamukky.FileUpload>(File.ReadAllText(file));
+                        FileUpload? f = JsonConvert.DeserializeObject<FileUpload>(File.ReadAllText(file));
                         if (f != null)
                         {
                             string[] spl = f.contentType.Split("/");
@@ -169,24 +217,28 @@ class ChatMessageFormatted : ChatMessage
         }
     }
 
-    public Dictionary<string, object?> toDictionary()
+    /// <summary>
+    /// Convert to dictionary to use it as dictionary, like for updaters.
+    /// </summary>
+    /// <returns>A string->object? dictionary of the message.</returns>
+    public Dictionary<string, object?> ToDictionary()
     {
         Dictionary<string, object?> d = new();
         //d["senderuser"] = senderuser;
-        d["replymsgcontent"] = replymsgcontent;
-        d["replymsgsender"] = replymsgsender;
-        d["replymsgid"] = replymsgid;
+        d["replymsgcontent"] = replyMessageContent;
+        d["replymsgsender"] = replyMessageSender;
+        d["replymsgid"] = replyMessageID;
         d["gImages"] = gImages;
         d["gVideos"] = gVideos;
         d["gAudio"] = gAudio;
         d["gFiles"] = gFiles;
-        d["sender"] = sender;
+        d["sender"] = senderUID;
         d["content"] = content;
-        d["time"] = time;
+        d["time"] = sendTime;
         d["files"] = files;
         d["reactions"] = reactions;
-        d["forwardedfrom"] = forwardedfrom;
-        d["pinned"] = pinned;
+        d["forwardedfrom"] = forwardedFromUID;
+        d["pinned"] = isPinned;
         //d["forwardedname"] = forwardedname;
         return d;
     }
@@ -258,7 +310,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     public List<UpdateHook> updateHooks = new();
 
-    int getIndexOfKeyInDictionary(string key)
+    int GetIndexOfKeyInDictionary(string key)
     {
         for (int i = 0; i < Count; ++i)
         {
@@ -273,14 +325,14 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// Sets user as typing
     /// </summary>
     /// <param name="uid">ID of the user.</param>
-    public void setTyping(string uid)
+    public void SetTyping(string uid)
     {
         if (!typingUsers.Contains(uid)) // Don't do duplicates
         {
             typingUsers.Add(uid);
             foreach (UpdateHook hook in updateHooks) // Send the event.
             {
-                if (canDo(hook.target, chatAction.Read))
+                if (CanDo(hook.target, ChatAction.Read))
                 {
                     hook["TYPING|" + uid] = true;
                 }
@@ -292,13 +344,13 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// Sets user as not typing.
     /// </summary>
     /// <param name="uid">ID of the user.</param>
-    public void remTyping(string uid)
+    public void RemoveTyping(string uid)
     {
         if (typingUsers.Remove(uid)) // Remove and if successful. So this doesn't happen multiple times.
         {
             foreach (UpdateHook hook in updateHooks)
             {
-                if (canDo(hook.target, chatAction.Read))
+                if (CanDo(hook.target, ChatAction.Read))
                 {
                     hook["TYPING|" + uid] = false;
                 }
@@ -311,7 +363,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     /// <param name="maxWait">How long should it wait before giving up? each count adds 500ms more.</param>
     /// <returns>List of UIDs of typing users.</returns>
-    public async Task<List<string>> waitForTypingUpdates(int maxWait = 40)
+    public async Task<List<string>> WaitForTypingUpdates(int maxWait = 40)
     {
         List<string> lastTyping = new(typingUsers);
 
@@ -334,7 +386,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     /// <param name="update">A dictionary that is a update</param>
     /// <param name="push">If true(default) updates will be pushed to federations</param>
-    void addUpdate(Dictionary<string, object?> update)
+    void AddUpdate(Dictionary<string, object?> update)
     {
         wasUpdated = true;
         if ((update["event"] ?? "").ToString() == "DELETED")
@@ -408,10 +460,10 @@ class Chat : OrderedDictionary<string, ChatMessage>
         ++newID;
         updates[newID] = update;
 
-        var formattedUpdate = formatUpdate(update);
+        var formattedUpdate = FormatUpdate(update);
         foreach (UpdateHook hook in updateHooks)
         {
-            if (canDo(hook.target, chatAction.Read))
+            if (CanDo(hook.target, ChatAction.Read))
             {
                 hook[newID.ToString()] = formattedUpdate;
             }
@@ -424,7 +476,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <param name="since"></param>
     /// <returns>Dictionary that holds updates with their IDs</returns>
 
-    public Dictionary<long, Dictionary<string, object?>> getUpdates(long since)
+    public Dictionary<long, Dictionary<string, object?>> GetUpdates(long since)
     {
         Dictionary<long, Dictionary<string, object?>> updatesSince = new();
         if (updates.Count == 0)
@@ -450,7 +502,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
             long id = updates.Keys.ElementAt(i);
             if (id > since)
             {
-                updatesSince[id] = formatUpdate(updates[id]);
+                updatesSince[id] = FormatUpdate(updates[id]);
                 /*if (!updates[id].ContainsKey("read") || !(updates[id]["read"] is List<string>)) {
                     updates[id]["read"] = new List<string>();
                 }
@@ -475,7 +527,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     /// <param name="maxWait">How long should it wait before giving up? each count adds 500ms more.</param>
     /// <returns>Dictionary that holds updates with their IDs</returns>
-    public async Task<Dictionary<long, Dictionary<string, object?>>> waitForUpdates(int maxWait = 40)
+    public async Task<Dictionary<long, Dictionary<string, object?>>> WaitForUpdates(int maxWait = 40)
     {
         long lastID = newID;
 
@@ -487,7 +539,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
             --wait;
         }
 
-        return getUpdates(lastID);
+        return GetUpdates(lastID);
     }
 
     /// <summary>
@@ -495,17 +547,17 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     /// <param name="upd">Update to add info to</param>
     /// <returns>Update that contains more info depending on the event</returns>
-    Dictionary<string, object?> formatUpdate(Dictionary<string, object?> upd)
+    Dictionary<string, object?> FormatUpdate(Dictionary<string, object?> upd)
     {
         Dictionary<string, object?> update;
         string eventtype = (upd["event"] ?? "").ToString() ?? "";
         string msgid = (upd["id"] ?? "").ToString() ?? "";
         if (eventtype == "NEWMESSAGE" || eventtype == "PINNED")
         {
-            ChatMessageFormatted? f = formatMessage(msgid);
+            ChatMessageFormatted? f = FormatMessage(msgid);
             if (f != null)
             {
-                update = f.toDictionary();
+                update = f.ToDictionary();
             }
             else
             {
@@ -523,23 +575,23 @@ class Chat : OrderedDictionary<string, ChatMessage>
     #endregion
 
     #region Message read
-    private ChatMessageFormatted? formatMessage(string key)
+    private ChatMessageFormatted? FormatMessage(string key)
     {
         if (formatCache.ContainsKey(key)) return formatCache[key];
         if (ContainsKey(key))
         {
             ChatMessageFormatted formatted = new ChatMessageFormatted(this[key]);
             formatCache[key] = formatted;
-            if (formatted.replymsgid != null)
+            if (formatted.replyMessageID != null)
             {
                 //chatMessageFormatted? innerformatted = formatMessage(formatted.replymsgid);
                 var chat = mainchat ?? this;// Get the message from the full chat, as page might not contain it. if chat is null, use this chat (could be a page only).
                 //Console.WriteLine(mainchat == null ? "null!" : "exists");
-                if (chat.ContainsKey(formatted.replymsgid))
+                if (chat.ContainsKey(formatted.replyMessageID))
                 { // Check if message exists
-                    var message = chat[formatted.replymsgid];
-                    formatted.replymsgcontent = message.content;
-                    formatted.replymsgsender = message.sender;
+                    var message = chat[formatted.replyMessageID];
+                    formatted.replyMessageContent = message.content;
+                    formatted.replyMessageSender = message.senderUID;
                 }
             }
             return formatted;
@@ -551,12 +603,12 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// Formats the entire chat
     /// </summary>
     /// <returns>The formatted chat</returns>
-    public OrderedDictionary<string, ChatMessageFormatted> format()
+    public OrderedDictionary<string, ChatMessageFormatted> FormatAll()
     {
         OrderedDictionary<string, ChatMessageFormatted> fd = new();
         foreach (var kv in this)
         {
-            ChatMessageFormatted? formattedMessage = formatMessage(kv.Key);
+            ChatMessageFormatted? formattedMessage = FormatMessage(kv.Key);
             if (formattedMessage == null) continue;
             fd[kv.Key] = formattedMessage;
         }
@@ -582,7 +634,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     /// <param name="prefix">2 stuff between "-" which can be #index which would indicate a message from bottom, like 0 would be lastest; #^index which would indicate a message from top, like 0 would be first; a message ID that would indicate that message.</param>
     /// <returns></returns>
-    public Chat getMessages(string prefix = "")
+    public Chat GetMessages(string prefix = "")
     {
         //Console.WriteLine(prefix);
         Chat chatPart = new() { chatID = chatID, mainchat = this };
@@ -590,8 +642,8 @@ class Chat : OrderedDictionary<string, ChatMessage>
         if (prefix.Contains("-"))
         {
             string[] split = prefix.Split("-");
-            string? msgid1 = getMessageIDFromPrefix(split[0]);
-            string? msgid2 = getMessageIDFromPrefix(split[1]);
+            string? msgid1 = GetMessageIDFromPrefix(split[0]);
+            string? msgid2 = GetMessageIDFromPrefix(split[1]);
             //Console.WriteLine("from: " + msgid1 + " To: " + msgid2);
             //Check if they exist
             if (msgid1 == null || msgid2 == null)
@@ -599,8 +651,8 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 return chatPart; // message indexes are wrong.
             }
 
-            int index1 = getIndexOfKeyInDictionary(msgid1);
-            int index2 = getIndexOfKeyInDictionary(msgid2);
+            int index1 = GetIndexOfKeyInDictionary(msgid1);
+            int index2 = GetIndexOfKeyInDictionary(msgid2);
             int fromi;
             int toi;
             if (index1 > index2)
@@ -619,14 +671,14 @@ class Chat : OrderedDictionary<string, ChatMessage>
             while (index <= toi)
             { // ... and count to high one
                 //Console.WriteLine(index);
-                chatPart.Add(Keys.ElementAt(index), Values.ElementAt(index) ?? new ChatMessage() {content = "Sorry, this message looks like it's corrupt.", sender = "0"});
+                chatPart.Add(Keys.ElementAt(index), Values.ElementAt(index) ?? new ChatMessage() {content = "Sorry, this message looks like it's corrupt.", senderUID = "0"});
                 ++index;
             }
 
         }
         else
         {
-            string? id = getMessageIDFromPrefix(prefix);
+            string? id = GetMessageIDFromPrefix(prefix);
             if (id != null) chatPart.Add(id, this[id]);
         }
         return chatPart;
@@ -638,7 +690,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     /// <param name="prefix">This could be #index which would indicate a message from bottom, like 0 would be lastest; #^index which would indicate a message from top, like 0 would be first; a message ID that would indicate that message.</param>
     /// <returns>Message ID or null if failled</returns>
-    public string? getMessageIDFromPrefix(string prefix)
+    public string? GetMessageIDFromPrefix(string prefix)
     {
         if (Count == 0)
         {
@@ -678,23 +730,23 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     /// <param name="previewMode">If true, the content will be cropped.</param>
     /// <returns>ChatMessage that is the last message.</returns>
-    public ChatMessage? getLastMessage(bool previewMode = false)
+    public ChatMessage? GetLastMessage(bool previewMode = false)
     {
         if (Count > 0)
         {
             var msg = Values.ElementAt(Count - 1);
             var ret = new ChatMessage()
             {
-                sender = msg.sender,
+                senderUID = msg.senderUID,
                 content = msg.content,
-                time = msg.time
+                sendTime = msg.sendTime
             };
             
             if (previewMode)
             {
                 ret.content = ret.content.Split("\n")[0];
                 const int cropsize = 50;
-                if (ret.content.Length > cropsize && ret.sender != "0")
+                if (ret.content.Length > cropsize && ret.senderUID != "0")
                 {
                     ret.content = ret.content.Substring(0, cropsize);
                 }
@@ -708,7 +760,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// Gets all pinned messages
     /// </summary>
     /// <returns></returns>
-    public Chat getPinned()
+    public Chat GetPinnedMessages()
     {
         return pinnedMessages ?? new() { chatID = chatID, mainchat = this };
     }
@@ -721,7 +773,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <param name="message">ChatMessage to send</param>
     /// <param name="notify">If true(default), notify all the members</param>
     /// <param name="remoteMessageID">Message ID that recieved from remote federation, should be null(default) if not recieved.</param>
-    public async void sendMessage(ChatMessage message, bool notify = true, string? remoteMessageID = null)
+    public async void SendMessage(ChatMessage message, bool notify = true, string? remoteMessageID = null)
     {
         newID++;
         string id = newID.ToString();
@@ -734,22 +786,22 @@ class Chat : OrderedDictionary<string, ChatMessage>
         Dictionary<string, object?> update = new();
         update["event"] = "NEWMESSAGE";
         update["id"] = id;
-        addUpdate(update);
+        AddUpdate(update);
         if (notify)
         {
-            var notification = new messageNotification()
+            var notification = new MessageNotification()
             {
-                user = ShortProfile.fromProfile(await UserProfile.Get(message.sender)), //Probably would stay like this
-                userid = message.sender,
+                user = ShortProfile.FromProfile(await UserProfile.Get(message.senderUID)), //Probably would stay like this
+                userid = message.senderUID,
                 content = message.content,
                 chatid = chatID
             };
             foreach (string member in group.members.Keys)
             {
-                if (message.sender != member)
+                if (message.senderUID != member)
                 {
-                    userConfig? uc = await userConfig.Get(member);
-                    if (uc != null && uc.canSendNotification(chatID, doesContainMention(message, member)))
+                    UserConfig? uc = await UserConfig.Get(member);
+                    if (uc != null && uc.CanSendNotification(chatID, DoesContainMention(message, member)))
                     {
                         Notifications.Get(member).AddNotification(notification);
                     }
@@ -763,14 +815,14 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// Deletes a message from the chat
     /// </summary>
     /// <param name="msgID">ID of the message to delete.</param>
-    public void deleteMessage(string msgID)
+    public void DeleteMessage(string msgID)
     {
         if (Remove(msgID))
         {
             Dictionary<string, object?> update = new();
             update["event"] = "DELETED";
             update["id"] = msgID;
-            addUpdate(update);
+            AddUpdate(update);
         }
     }
 
@@ -782,7 +834,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <param name="reaction">Reaction emoji to send.</param>
     /// <param name="toggle">Null to toggle(default), true to add, false to remove.</param>
     /// <returns>All reactions that are in the message.</returns>
-    public MessageReactions reactMessage(string msgID, string userID, string reaction, bool? toggle = null)
+    public MessageReactions ReactMessage(string msgID, string userID, string reaction, bool? toggle = null)
     {
         if (ContainsKey(msgID))
         {
@@ -803,8 +855,8 @@ class Chat : OrderedDictionary<string, ChatMessage>
             update["reaction"] = reaction;
             if (toggle == true)
             {
-                string time = Pamukky.dateToString(DateTime.Now);
-                MessageReaction react = new() { sender = userID, reaction = reaction, time = time };
+                DateTime time = DateTime.Now;
+                MessageReaction react = new() { senderUID = userID, reaction = reaction, sendTime = time };
                 r[userID] = react;
                 update["event"] = "REACT";
                 update["time"] = time;
@@ -815,7 +867,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 update["event"] = "UNREACT";
             }
             rect.Update();
-            addUpdate(update);
+            AddUpdate(update);
             return rect;
         }
         return new();
@@ -827,41 +879,41 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <param name="msgID">ID of the message to pin/unpin.</param>
     /// <param name="val">Null to toggle, false to unpin, true to pin.</param>
     /// <returns>Pinned status of the message.</returns>
-    public bool pinMessage(string msgID, bool? val = null)
+    public bool PinMessage(string msgID, bool? val = null)
     {
         if (ContainsKey(msgID))
         {
             var message = this[msgID];
             if (val == null)
             {
-                val = !message.pinned;
+                val = !message.isPinned;
             }
-            if (message.pinned == val)
+            if (message.isPinned == val)
             {
                 return val.Value;
             }
-            message.pinned = val.Value;
-            if (message.pinned == true)
+            message.isPinned = val.Value;
+            if (message.isPinned == true)
             {
-                getPinned()[msgID] = message;
+                GetPinnedMessages()[msgID] = message;
             }
             else
             {
-                getPinned().Remove(msgID);
+                GetPinnedMessages().Remove(msgID);
             }
-            ChatMessageFormatted? f = formatMessage(msgID);
+            ChatMessageFormatted? f = FormatMessage(msgID);
             if (f != null)
             {
                 Dictionary<string, object?> update = new();
-                update["event"] = message.pinned ? "PINNED" : "UNPINNED";
+                update["event"] = message.isPinned ? "PINNED" : "UNPINNED";
                 update["id"] = msgID;
-                addUpdate(update);
+                AddUpdate(update);
             }
             if (formatCache.ContainsKey(msgID))
             {
-                formatCache[msgID].pinned = message.pinned;
+                formatCache[msgID].isPinned = message.isPinned;
             }
-            return message.pinned;
+            return message.isPinned;
         }
         return false;
     }
@@ -875,19 +927,19 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <param name="msg">ChatMessage to dedect.</param>
     /// <param name="targetUserID">ID of the target user to search for mentions(@) in the message.</param>
     /// <returns></returns>
-    public bool doesContainMention(ChatMessage msg, string targetUserID)
+    public bool DoesContainMention(ChatMessage msg, string targetUserID)
     {
         // @chat, @everyone and @room like stuff that pings everyone.
         if (msg.content.Contains("@chat") || msg.content.Contains("@everyone") || msg.content.Contains("@room")) return true;
         // A actual mention of user
         if (msg.content.Contains("@" + targetUserID)) return true;
         // Reply to user's message. if replied.
-        if (msg.replymsgid != null)
+        if (msg.replyMessageID != null)
         {
-            if (ContainsKey(msg.replymsgid))
+            if (ContainsKey(msg.replyMessageID))
             {
-                ChatMessage targetMessage = this[msg.replymsgid];
-                if (targetMessage.sender == targetUserID)
+                ChatMessage targetMessage = this[msg.replyMessageID];
+                if (targetMessage.senderUID == targetUserID)
                 {
                     return true;
                 }
@@ -898,7 +950,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     #endregion
 
     #region Permissions
-    public enum chatAction
+    public enum ChatAction
     {
         Read,
         Send,
@@ -907,9 +959,9 @@ class Chat : OrderedDictionary<string, ChatMessage>
         Pin
     }
 
-    public bool canDo(string target, chatAction action, string msgid = "")
+    public bool CanDo(string target, ChatAction action, string msgid = "")
     {
-        if (action == chatAction.Read && group.publicgroup) return true;
+        if (action == ChatAction.Read && group.publicGroup) return true;
 
         if (target.Contains(":") || target.Contains("."))
         {
@@ -920,7 +972,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
         GroupMember? u = null;
         foreach (var member in group.members)
         { //find the user
-            if (member.Value.user == target)
+            if (member.Value.userID == target)
             {
                 u = member.Value;
             }
@@ -929,16 +981,16 @@ class Chat : OrderedDictionary<string, ChatMessage>
         { // Doesn't exist? block
             return false;
         }
-        if (action != chatAction.Send && action != chatAction.Read)
+        if (action != ChatAction.Send && action != ChatAction.Read)
         { // Any actions except read and send will require a existent message
             if (!ContainsKey(msgid))
             {
                 return false;
             }
         }
-        if (action == chatAction.Delete)
+        if (action == ChatAction.Delete)
         {
-            if (this[msgid].sender == target)
+            if (this[msgid].senderUID == target)
             { // User can delete their own messages.
                 return true;
             }
@@ -947,10 +999,10 @@ class Chat : OrderedDictionary<string, ChatMessage>
         { //is this a real group user?
             //Then it's a real group
             GroupRole role = group.roles[u.role];
-            if (action == chatAction.React) return role.AllowSendingReactions;
-            if (action == chatAction.Send) return role.AllowSending;
-            if (action == chatAction.Delete) return role.AllowMessageDeleting;
-            if (action == chatAction.Pin) return role.AllowPinningMessages;
+            if (action == ChatAction.React) return role.AllowSendingReactions;
+            if (action == ChatAction.Send) return role.AllowSending;
+            if (action == ChatAction.Delete) return role.AllowMessageDeleting;
+            if (action == ChatAction.Pin) return role.AllowPinningMessages;
         }
         return true;
     }
@@ -962,7 +1014,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     /// <param name="chatID">ID of the chat.</param>
     /// <returns>Chat if succeeded, null if invalid/failled.</returns>
-    public static async Task<Chat?> getChat(string chatID)
+    public static async Task<Chat?> GetChat(string chatID)
     {
         if (loadingChats.Contains(chatID))
         {
@@ -1008,6 +1060,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
         }
         else
         {
+            // If it's not a federation, we know it should have existed.
             if (!chatID.Contains("@")) loadedChat = new Chat();
         }
 
@@ -1016,13 +1069,13 @@ class Chat : OrderedDictionary<string, ChatMessage>
             string[] split = chatID.Split("@");
             string id = split[0];
             string server = split[1];
-            var connection = await Federation.connect(server, true);
+            var connection = await Federation.Connect(server, true);
             if (connection != null)
             {
-                if (connection.connected == true) loadedChat = await connection.getChat(id);
+                if (connection.connected == true) loadedChat = await connection.GetChat(id);
                 connection.Connected += async (_,_) =>
                 {
-                    Chat? newChat = await connection.getChat(id);
+                    Chat? newChat = await connection.GetChat(id);
                     if (newChat != null && loadedChat != null)
                     {
                         // Remake the chat with new fetched chat. Probably would be better if updates were fetched instead... works for now, tho.
@@ -1038,7 +1091,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                         loadedChat.pinnedMessages.Clear();
                         foreach (var kv in newChat)
                         {
-                            if (kv.Value.pinned)
+                            if (kv.Value.isPinned)
                             {
                                 loadedChat.pinnedMessages[kv.Key] = kv.Value;
                             }
@@ -1079,14 +1132,14 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 string[] users = chatID.Split("-");
                 foreach (string user in users)
                 {
-                    loadedChat.group.members[user] = new GroupMember() { user = user };
+                    loadedChat.group.members[user] = new GroupMember() { userID = user };
                 }
             }
 
             loadedChat.pinnedMessages = new() { chatID = chatID, mainchat = loadedChat };
             foreach (var kv in loadedChat)
             {
-                if (kv.Value.pinned)
+                if (kv.Value.isPinned)
                 {
                     loadedChat.pinnedMessages[kv.Key] = kv.Value;
                 }

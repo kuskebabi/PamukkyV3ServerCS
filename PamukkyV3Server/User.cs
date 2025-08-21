@@ -27,7 +27,7 @@ class Notifications : ConcurrentDictionary<string, UserNotifications>
 /// <summary>
 /// Class to hold notifications of a user.
 /// </summary>
-class UserNotifications : ConcurrentDictionary<string, messageNotification>
+class UserNotifications : ConcurrentDictionary<string, MessageNotification>
 {
     [JsonIgnore]
     public Dictionary<string, UserNotifications> notificationsForDevices = new();
@@ -44,7 +44,7 @@ class UserNotifications : ConcurrentDictionary<string, messageNotification>
         return notificationsForDevices[token];
     }
 
-    public void AddNotification(messageNotification notif)
+    public void AddNotification(MessageNotification notif)
     {
         string key = DateTime.Now.Ticks.ToString();
         foreach (UserNotifications deviceNotifications in notificationsForDevices.Values)
@@ -57,7 +57,7 @@ class UserNotifications : ConcurrentDictionary<string, messageNotification>
 /// <summary>
 /// Notification for a message.
 /// </summary>
-class messageNotification
+class MessageNotification
 {
     public string? chatid;
     public string? userid;
@@ -68,7 +68,7 @@ class messageNotification
 /// <summary>
 /// Login credentials
 /// </summary>
-class loginCred
+class LoginCredential
 {
     public string EMail = "";
     public string Password = "";
@@ -86,16 +86,16 @@ class MutedChatData
 /// <summary>
 /// Class to hold user-private settings like muted chats.
 /// </summary>
-class userConfig
+class UserConfig
 {
     [JsonIgnore]
     public string userID = "";
     [JsonIgnore]
-    public static ConcurrentDictionary<string, userConfig> userConfigCache = new();
+    public static ConcurrentDictionary<string, UserConfig> userConfigCache = new();
 
     public ConcurrentDictionary<string, MutedChatData> mutedChats = new();
 
-    public static async Task<userConfig?> Get(string userID)
+    public static async Task<UserConfig?> Get(string userID)
     {
         if (userID.Contains("@")) return null; // Don't attempt to get config for federation.
         if (userConfigCache.ContainsKey(userID))
@@ -110,7 +110,7 @@ class userConfig
             {
                 try
                 {
-                    userConfig? userconfig = JsonConvert.DeserializeObject<userConfig>(await File.ReadAllTextAsync("data/info/" + userID + "/config"));
+                    UserConfig? userconfig = JsonConvert.DeserializeObject<UserConfig>(await File.ReadAllTextAsync("data/info/" + userID + "/config"));
                     if (userconfig != null)
                     {
                         userconfig.userID = userID;
@@ -120,14 +120,14 @@ class userConfig
                 }
                 catch // Act like it didn't exist.
                 {
-                    userConfig uc = new() { userID = userID };
+                    UserConfig uc = new() { userID = userID };
                     userConfigCache[userID] = uc;
                     return uc;
                 }
             }
             else // if doesn't exist, create new one
             {
-                userConfig uc = new() { userID = userID };
+                UserConfig uc = new() { userID = userID };
                 userConfigCache[userID] = uc;
                 return uc;
             }
@@ -141,7 +141,7 @@ class userConfig
     /// <param name="chatID">ID of the chat.</param>
     /// <param name="isMention">If message contains mention or not.</param>
     /// <returns></returns>
-    public bool canSendNotification(string chatID, bool isMention)
+    public bool CanSendNotification(string chatID, bool isMention)
     {
         if (mutedChats.ContainsKey(chatID))
         {
@@ -192,7 +192,7 @@ class UserStatus
     /// </summary>
     /// <param name="chatID">ID of the chat.</param>
     /// <returns></returns>
-    public bool getTyping(string chatID)
+    public bool GetTyping(string chatID)
     {
         if (typeTime == null)
         {
@@ -213,23 +213,23 @@ class UserStatus
     /// Sets user as typing in the chat
     /// </summary>
     /// <param name="chatID">ID of the chat</param>
-    public async void setTyping(string? chatID)
+    public async void SetTyping(string? chatID)
     {
         //Remove typing if null was passed
         if (chatID == null)
         {
-            Chat? chat = await Chat.getChat(typingChat);
-            if (chat != null) chat.remTyping(user);
+            Chat? chat = await Chat.GetChat(typingChat);
+            if (chat != null) chat.RemoveTyping(user);
         }
         else
         {
             //Set user as typing at the chat
-            Chat? chat = await Chat.getChat(chatID);
+            Chat? chat = await Chat.GetChat(chatID);
             if (chat != null)
             {
                 typeTime = DateTime.Now;
                 typingChat = chatID;
-                chat.setTyping(user);
+                chat.SetTyping(user);
                 // Disable warning because it's supposed to be like that
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
                 Task.Delay(3100).ContinueWith((task) =>
@@ -237,7 +237,7 @@ class UserStatus
                     if (chatID == typingChat && !(typeTime.Value.AddSeconds(timeout) > DateTime.Now))
                     { //Check if it's the same typing update.
                         typeTime = null;
-                        chat.remTyping(user);
+                        chat.RemoveTyping(user);
                     }
                 });
 #pragma warning restore CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
@@ -278,13 +278,20 @@ class UserProfile
 
     public string name = "User";
     public string picture = "";
-    public string description = "Hello!";
+    public string bio = "Hello!";
     private DateTime? lastOnlineTime;
+
+    #region Backwards compatibility
+    public string description
+    {
+        set { bio = value; }
+    }
+    #endregion
 
     /// <summary>
     /// Sets the user online.
     /// </summary>
-    public void setOnline()
+    public void SetOnline()
     {
         lastOnlineTime = DateTime.Now;
         foreach (var hook in updateHooks)
@@ -293,7 +300,7 @@ class UserProfile
         }
         Task.Delay(10100).ContinueWith((task) =>
         { //save after 5 mins and recall
-            string onlineStatus = getOnline();
+            string onlineStatus = GetOnline();
             if (onlineStatus != "Online")
             {
                 foreach (var hook in updateHooks)
@@ -308,11 +315,11 @@ class UserProfile
     /// Gets if user is online
     /// </summary>
     /// <returns>"Online" if online, last online date as string if offline.</returns>
-    public string getOnline()
+    public string GetOnline()
     {
         if (lastOnlineTime == null)
         {
-            return Pamukky.dateToString(DateTime.MinValue);
+            return Helpers.DateToString(DateTime.MinValue);
         }
         else
         {
@@ -322,7 +329,7 @@ class UserProfile
             }
             else
             { //Return last online
-                return Pamukky.dateToString(lastOnlineTime.Value);
+                return Helpers.DateToString(lastOnlineTime.Value);
             }
         }
     }
@@ -344,7 +351,7 @@ class UserProfile
             string[] split = userID.Split("@");
             string id = split[0];
             string server = split[1];
-            var connection = await Federation.connect(server);
+            var connection = await Federation.Connect(server);
             if (connection != null)
             {
                 UserProfile? up = await connection.getUser(id);
@@ -352,8 +359,8 @@ class UserProfile
                 {
                     up.userID = userID;
                     userProfileCache[userID] = up;
-                    up.save(); // Save the user from the federation in case it goes offline after some time.
-                    
+                    up.Save(); // Save the user from the federation in case it goes offline after some time.
+
                     return up;
                 }
             }
@@ -381,13 +388,13 @@ class UserProfile
     {
         userProfileCache[userID] = profile; //set
         profile.userID = userID;
-        profile.save();
+        profile.Save();
     }
 
     /// <summary>
     /// Saves the profile.
     /// </summary>
-    public void save()
+    public void Save()
     {
         foreach (var hook in updateHooks)
         {
@@ -410,7 +417,7 @@ class ShortProfile
     /// </summary>
     /// <param name="profile"></param>
     /// <returns></returns>
-    public static ShortProfile fromProfile(UserProfile? profile)
+    public static ShortProfile FromProfile(UserProfile? profile)
     {
         if (profile != null)
         {
@@ -424,7 +431,7 @@ class ShortProfile
     /// </summary>
     /// <param name="group"></param>
     /// <returns></returns>
-    public static ShortProfile fromGroup(Group? group)
+    public static ShortProfile FromGroup(Group? group)
     {
         if (group != null)
         {
@@ -437,7 +444,7 @@ class ShortProfile
 /// <summary>
 /// Chats list of a user.
 /// </summary>
-class UserChatsList : List<chatItem>
+class UserChatsList : List<ChatItem>
 {
     public static ConcurrentDictionary<string, UserChatsList> userChatsCache = new();
     /// <summary>
@@ -480,7 +487,7 @@ class UserChatsList : List<chatItem>
     /// Adds a chat to user's chats list if it doesn't exist.
     /// </summary>
     /// <param name="item">chatItem to add.</param>
-    public void AddChat(chatItem item)
+    public void AddChat(ChatItem item)
     { //Add to chats list
         foreach (var i in this)
         { //Check if it doesn't exist
@@ -528,7 +535,7 @@ class UserChatsList : List<chatItem>
 /// <summary>
 /// A single chats list item.
 /// </summary>
-class chatItem
+class ChatItem
 {
     public string? chatid;
     public string type = "";
@@ -642,7 +649,7 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
         if (target is Chat)
         {
             Chat chat = (Chat)target;
-            if (chat.canDo(ttarget, Chat.chatAction.Read))
+            if (chat.CanDo(ttarget, Chat.ChatAction.Read))
                 chat.updateHooks.Add(hook);
         }
         else if (target is UserProfile)
