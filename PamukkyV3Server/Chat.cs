@@ -226,7 +226,7 @@ class ChatMessageFormatted : ChatMessage
         Dictionary<string, object?> d = new();
         //d["senderuser"] = senderuser;
         d["replyMessageContent"] = replyMessageContent;
-        d["replyMessageSender"] = replyMessageSenderUID;
+        d["replyMessageSenderUID"] = replyMessageSenderUID;
         d["replyMessageID"] = replyMessageID;
         d["gImages"] = gImages;
         d["gVideos"] = gVideos;

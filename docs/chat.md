@@ -158,9 +158,9 @@ Gets or waits for new typing updates. Different than format in "#Chat updater/ho
     "reactions?":{
         "(Emoji)":{
             "(ID of the user)":{
-                "reaction":"(Emoji)",
-                "senderUID":"(ID of the user)",
-                "sendTime":"(Send time of the reaction)"
+                    "reaction":"(Emoji)",
+                    "senderUID":"(ID of the user)",
+                    "sendTime":"(Send time of the reaction)"
                 }
             }
     },
