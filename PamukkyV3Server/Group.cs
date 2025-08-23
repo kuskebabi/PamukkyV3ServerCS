@@ -18,7 +18,7 @@ class Group
     public string info = "";
     public string creatorUID = "";
     public DateTime creationTime = DateTime.Now;
-    public bool publicGroup = false; //Can the group be read without joining?
+    public bool isPublic = false; //Can the group be read without joining?
     public ConcurrentDictionary<string, GroupMember> members = new();
     public Dictionary<string, GroupRole> roles = new();
     public List<string> bannedMembers = new();
@@ -36,7 +36,7 @@ class Group
 
     public bool publicgroup
     {
-        set { publicGroup = value; }
+        set { isPublic = value; }
     }
     #endregion
 
@@ -299,7 +299,7 @@ class Group
 
     public bool CanDo(string user, groupAction action, string? target = null)
     {
-        if (action == groupAction.Read && publicGroup) return true;
+        if (action == groupAction.Read && isPublic) return true;
 
         GroupMember? u = null;
         foreach (var member in members)
@@ -486,7 +486,7 @@ class GroupInfo
     public string name = "";
     public string picture = "";
     public string info = "";
-    public bool publicGroup = false;
+    public bool isPublic = false;
 }
 
 /// <summary>

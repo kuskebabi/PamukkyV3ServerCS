@@ -277,9 +277,8 @@ internal class Pamukky
                             //File.Delete("data/auth/" + lc.token);
                             //lc.token = token;
                             lc.Password = Helpers.HashPassword(a["password"].Trim(), lc.userID);
-                            string astr = JsonConvert.SerializeObject(lc);
                             //File.WriteAllText("data/auth/" + token, astr);
-                            File.WriteAllText("data/auth/" + lc.EMail, astr);
+                            File.WriteAllText("data/auth/" + lc.EMail, JsonConvert.SerializeObject(lc));
                             //Find other logins
                             var tokens = loginCreds.Where(lco => lco.Value.userID == lc.userID && lc != lco.Value);
                             foreach (var token in tokens)
@@ -287,7 +286,7 @@ internal class Pamukky
                                 //remove the logins.
                                 loginCreds.Remove(token.Key, out _);
                             }
-                            res = astr;
+                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
                         }
                     }
                     else
@@ -851,7 +850,7 @@ internal class Pamukky
                                 {
                                     senderUID = uid,
                                     content = (a["content"].ToString() ?? "").Trim(),
-                                    replyMessageID = a.ContainsKey("replymsg") ? a["replymsg"].ToString() : null,
+                                    replyMessageID = a.ContainsKey("replymessageid") ? a["replymessageid"].ToString() : null,
                                     files = files
                                 };
                                 chat.SendMessage(msg);
@@ -895,7 +894,7 @@ internal class Pamukky
         else if (action == "deletemessage")
         {
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
-            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs"))
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("messageids"))
             {
                 string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                 if (uid != null)
@@ -903,10 +902,10 @@ internal class Pamukky
                     Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
                     if (chat != null)
                     {
-                        if (a["msgs"] is JArray)
+                        if (a["messageids"] is JArray)
                         {
-                            var msgs = (JArray)a["msgs"];
-                            foreach (object msg in msgs)
+                            var messages = (JArray)a["messageids"];
+                            foreach (object msg in messages)
                             {
                                 string? msgid = msg.ToString() ?? "";
                                 if (chat.CanDo(uid, Chat.ChatAction.Delete, msgid))
@@ -945,7 +944,7 @@ internal class Pamukky
         else if (action == "pinmessage")
         { //More like a toggle
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
-            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs"))
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("messageids"))
             {
                 string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                 if (uid != null)
@@ -953,10 +952,10 @@ internal class Pamukky
                     Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
                     if (chat != null)
                     {
-                        if (a["msgs"] is JArray)
+                        if (a["messageids"] is JArray)
                         {
-                            var msgs = (JArray)a["msgs"];
-                            foreach (object msg in msgs)
+                            var messages = (JArray)a["messageids"];
+                            foreach (object msg in messages)
                             {
                                 string? msgid = msg.ToString() ?? "";
                                 if (chat.CanDo(uid, Chat.ChatAction.Pin, msgid))
@@ -1002,7 +1001,7 @@ internal class Pamukky
         else if (action == "sendreaction")
         { //More like a toggle
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
-            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgid") && a.ContainsKey("reaction") && (a["reaction"].ToString() ?? "") != "")
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("messageid") && a.ContainsKey("reaction") && (a["reaction"].ToString() ?? "") != "")
             {
                 string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                 if (uid != null)
@@ -1010,12 +1009,12 @@ internal class Pamukky
                     Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
                     if (chat != null)
                     {
-                        string? msgid = a["msgid"].ToString() ?? "";
+                        string? message = a["messageid"].ToString() ?? "";
                         string? reaction = a["reaction"].ToString() ?? "";
-                        if (chat.CanDo(uid, Chat.ChatAction.React, msgid))
+                        if (chat.CanDo(uid, Chat.ChatAction.React, message))
                         {
                             //if (chat.ContainsKey(msgid)) {
-                            res = JsonConvert.SerializeObject(chat.ReactMessage(msgid, uid, reaction));
+                            res = JsonConvert.SerializeObject(chat.ReactMessage(message, uid, reaction));
                             //}else {
                             //    statuscode = 404;
                             //    res = JsonConvert.SerializeObject(new serverResponse("error", "NOMSG", "Message not found"));
@@ -1048,7 +1047,7 @@ internal class Pamukky
         else if (action == "savemessage")
         {
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
-            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs"))
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("messageids"))
             {
                 string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                 if (uid != null)
@@ -1058,10 +1057,10 @@ internal class Pamukky
                     {
                         if (chat.CanDo(uid, Chat.ChatAction.Read))
                         {
-                            if (a["msgs"] is JArray)
+                            if (a["messageids"] is JArray)
                             {
-                                var msgs = (JArray)a["msgs"];
-                                foreach (object msg in msgs)
+                                var messages = (JArray)a["messageids"];
+                                foreach (object msg in messages)
                                 {
                                     string? msgid = msg.ToString() ?? "";
                                     if (chat.ContainsKey(msgid))
@@ -1115,7 +1114,7 @@ internal class Pamukky
         else if (action == "forwardmessage")
         {
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
-            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("msgs") && a.ContainsKey("tochats"))
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("messageids") && a.ContainsKey("chatidstosend"))
             {
                 string? uid = await GetUIDFromToken(a["token"].ToString() ?? "");
                 if (uid != null)
@@ -1125,17 +1124,17 @@ internal class Pamukky
                     {
                         if (chat.CanDo(uid, Chat.ChatAction.Read))
                         {
-                            if (a["msgs"] is JArray)
+                            if (a["messageids"] is JArray)
                             {
-                                var msgs = (JArray)a["msgs"];
-                                foreach (object msg in msgs)
+                                var messages = (JArray)a["messageids"];
+                                foreach (object msg in messages)
                                 {
                                     string? msgid = msg.ToString() ?? "";
                                     if (chat.ContainsKey(msgid))
                                     {
-                                        if (a["tochats"] is JArray)
+                                        if (a["chatidstosend"] is JArray)
                                         {
-                                            var chats = (JArray)a["tochats"];
+                                            var chats = (JArray)a["chatidstosend"];
                                             foreach (object chatid in chats)
                                             {
                                                 Chat? uchat = await Chat.GetChat(chatid.ToString() ?? "");
@@ -1485,7 +1484,7 @@ internal class Pamukky
                             name = gp.name,
                             info = gp.info,
                             picture = gp.picture,
-                            publicGroup = gp.publicGroup
+                            isPublic = gp.isPublic
                         });
                     }
                     else
@@ -1535,7 +1534,7 @@ internal class Pamukky
                                     name = gp.name,
                                     info = gp.info,
                                     picture = gp.picture,
-                                    publicGroup = gp.publicGroup
+                                    isPublic = gp.isPublic
                                 });
                             }
                             else
@@ -1558,8 +1557,8 @@ internal class Pamukky
                 res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
-        else if (action == "getgroupusers" || action == "getgroupmembers")
-        { //getgroupmembers is new name, gets the members list in json format.
+        else if (action == "getgroupmembers")
+        { //Gets members list in json format.
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("groupid"))
             {
@@ -1620,8 +1619,8 @@ internal class Pamukky
                 res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
-        else if (action == "getgroupuserscount" || action == "getgroupmemberscount")
-        { //getgroupmemberscount is new name, returns group member count as string. like "5"
+        else if (action == "getgroupmemberscount")
+        { //returns group member count as string. like "5"
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("groupid"))
             {
@@ -1700,7 +1699,7 @@ internal class Pamukky
                         }
                         else
                         {
-                            if (gp.publicGroup)
+                            if (gp.isPublic)
                             {
                                 res = JsonConvert.SerializeObject(new GroupRole()
                                 {
@@ -1753,11 +1752,7 @@ internal class Pamukky
                     {
                         if (await gp.AddUser(uid))
                         {
-                            Dictionary<string, string> response = new()
-                            {
-                                ["groupid"] = gp.groupID
-                            };
-                            res = JsonConvert.SerializeObject(response);
+                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             gp.Save();
                         }
                         else
@@ -1825,10 +1820,10 @@ internal class Pamukky
                 res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
-        else if (action == "kickuser")
+        else if (action == "kickmember")
         { //Kicks a user from the group. They can rejoin.
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
-            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid"))
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid"))
             {
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
@@ -1836,9 +1831,9 @@ internal class Pamukky
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (gp.CanDo(uid, Group.groupAction.Kick, a["uid"] ?? ""))
+                        if (gp.CanDo(uid, Group.groupAction.Kick, a["userid"] ?? ""))
                         {
-                            if (await gp.RemoveUser(a["uid"] ?? ""))
+                            if (await gp.RemoveUser(a["userid"] ?? ""))
                             {
                                 gp.Save();
                                 res = JsonConvert.SerializeObject(new ServerResponse("done"));
@@ -1873,10 +1868,10 @@ internal class Pamukky
                 res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
-        else if (action == "banuser")
+        else if (action == "banmember")
         { //bans a user from the group. they can't join until they are unbanned.
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
-            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid"))
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid"))
             {
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
@@ -1884,9 +1879,9 @@ internal class Pamukky
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (gp.CanDo(uid, Group.groupAction.Ban, a["uid"] ?? ""))
+                        if (gp.CanDo(uid, Group.groupAction.Ban, a["userid"] ?? ""))
                         {
-                            if (await gp.BanUser(a["uid"] ?? ""))
+                            if (await gp.BanUser(a["userid"] ?? ""))
                             {
                                 gp.Save();
                                 res = JsonConvert.SerializeObject(new ServerResponse("done"));
@@ -1921,10 +1916,10 @@ internal class Pamukky
                 res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
-        else if (action == "unbanuser")
+        else if (action == "unbanmember")
         { //Unbans a user, they can rejoin.
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
-            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("uid"))
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid"))
             {
                 string? uid = await GetUIDFromToken(a["token"]);
                 if (uid != null)
@@ -1932,9 +1927,9 @@ internal class Pamukky
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (gp.CanDo(uid, Group.groupAction.Ban, a["uid"] ?? ""))
+                        if (gp.CanDo(uid, Group.groupAction.Ban, a["userid"] ?? ""))
                         {
-                            gp.UnbanUser(a["uid"] ?? "");
+                            gp.UnbanUser(a["userid"] ?? "");
                             gp.Save();
                         }
                         else
@@ -1986,9 +1981,9 @@ internal class Pamukky
                             {
                                 gp.info = a["info"].ToString() ?? "";
                             }
-                            if (a.ContainsKey("publicgroup") && a["publicgroup"] is bool)
+                            if (a.ContainsKey("ispublic") && a["ispublic"] is bool)
                             {
-                                gp.publicGroup = (bool)a["publicgroup"];
+                                gp.isPublic = (bool)a["ispublic"];
                             }
                             if (a.ContainsKey("roles"))
                             {
@@ -2003,12 +1998,7 @@ internal class Pamukky
                                 }
                                 if (setroles) gp.roles = roles;
                             }
-                            // backwards compat
-                            Dictionary<string, string> response = new()
-                            {
-                                ["groupid"] = gp.groupID
-                            };
-                            res = JsonConvert.SerializeObject(response);
+                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             gp.Save();
                             Chat? chat = await Chat.GetChat(gp.groupID);
                             if (chat != null)
@@ -2241,7 +2231,7 @@ internal class Pamukky
                                 if (gp != null)
                                 {
                                     bool showfullinfo = false;
-                                    if (gp.publicGroup)
+                                    if (gp.isPublic)
                                     {
                                         showfullinfo = true;
                                     }
@@ -2408,7 +2398,7 @@ internal class Pamukky
                                 if (chat != null)
                                 {
                                     bool showfullinfo = false;
-                                    if (chat.group.publicGroup)
+                                    if (chat.group.isPublic)
                                     {
                                         showfullinfo = true;
                                     }
@@ -2530,7 +2520,7 @@ internal class Pamukky
                                                         {
                                                             senderUID = (update["sender"] ?? "").ToString() ?? "",
                                                             content = (update["content"] ?? "").ToString() ?? "",
-                                                            sendTime = (DateTime)update["time"],
+                                                            sendTime = (DateTime?)update["time"] ?? DateTime.Now,
                                                             replyMessageID = update.ContainsKey("replymsgid") ? update["replymsgid"] == null ? null : (update["replymsgid"] ?? "").ToString() : null,
                                                             forwardedFromUID = forwardedFrom,
                                                             files = update.ContainsKey("files") && (update["files"] is JArray) ? ((JArray?)update["files"] ?? new JArray()).ToObject<List<string>>() : null,
@@ -2623,16 +2613,9 @@ internal class Pamukky
                                     id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
                                 }
                                 while (File.Exists("data/upload/" + id));
-                                string? filename = id;// = context.Request.Headers["filename"];
-                                //if (filename == null) {
-                                //filename = id;
-                                //}else {
-                                //    filename = filename + id;
-                                //}
-                                string fpname = filename.Replace(".", "").Replace("/", "").Replace("\\", "");
                                 var stream = context.Request.InputStream;
                                 //stream.Seek(0, SeekOrigin.Begin);
-                                var fileStream = File.Create("data/upload/" + fpname + ".file");
+                                var fileStream = File.Create("data/upload/" + id + ".file");
                                 await stream.CopyToAsync(fileStream);
                                 fileStream.Close();
                                 fileStream.Dispose();
@@ -2646,9 +2629,9 @@ internal class Pamukky
 
                                 string? uf = JsonConvert.SerializeObject(u);
                                 if (uf == null) throw new Exception("???");
-                                File.WriteAllText("data/upload/" + fpname, uf);
+                                File.WriteAllText("data/upload/" + id, uf);
 
-                                res = JsonConvert.SerializeObject(new FileUploadResponse("success", "%SERVER%getmedia?file=" + fpname));
+                                res = JsonConvert.SerializeObject(new FileUploadResponse("success", "%SERVER%getmedia?file=" + id));
                                 context.Response.StatusCode = statuscode;
                                 context.Response.ContentType = "text/json";
                                 byte[] bts = Encoding.UTF8.GetBytes(res);

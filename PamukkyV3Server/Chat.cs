@@ -143,7 +143,7 @@ class ChatMessageFormatted : ChatMessage
 { // Chat message formatted for client sending.
     //public profileShort? senderuser; REMOVED. Data waste.
     public string? replyMessageContent;
-    public string? replyMessageSender;
+    public string? replyMessageSenderUID;
 
     public List<ChatFile>? gImages;
     public List<ChatFile>? gVideos;
@@ -225,20 +225,20 @@ class ChatMessageFormatted : ChatMessage
     {
         Dictionary<string, object?> d = new();
         //d["senderuser"] = senderuser;
-        d["replymsgcontent"] = replyMessageContent;
-        d["replymsgsender"] = replyMessageSender;
-        d["replymsgid"] = replyMessageID;
+        d["replyMessageContent"] = replyMessageContent;
+        d["replyMessageSender"] = replyMessageSenderUID;
+        d["replyMessageID"] = replyMessageID;
         d["gImages"] = gImages;
         d["gVideos"] = gVideos;
         d["gAudio"] = gAudio;
         d["gFiles"] = gFiles;
-        d["sender"] = senderUID;
+        d["senderUID"] = senderUID;
         d["content"] = content;
-        d["time"] = sendTime;
+        d["sendTime"] = sendTime;
         d["files"] = files;
         d["reactions"] = reactions;
-        d["forwardedfrom"] = forwardedFromUID;
-        d["pinned"] = isPinned;
+        d["forwardedFromUID"] = forwardedFromUID;
+        d["isPinned"] = isPinned;
         //d["forwardedname"] = forwardedname;
         return d;
     }
@@ -591,7 +591,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 { // Check if message exists
                     var message = chat[formatted.replyMessageID];
                     formatted.replyMessageContent = message.content;
-                    formatted.replyMessageSender = message.senderUID;
+                    formatted.replyMessageSenderUID = message.senderUID;
                 }
             }
             return formatted;
@@ -851,20 +851,20 @@ class Chat : OrderedDictionary<string, ChatMessage>
             //Create event dictionary to send.
             Dictionary<string, object?> update = new();
             update["id"] = msgID;
-            update["userID"] = userID;
+            update["senderUID"] = userID;
             update["reaction"] = reaction;
             if (toggle == true)
             {
                 DateTime time = DateTime.Now;
                 MessageReaction react = new() { senderUID = userID, reaction = reaction, sendTime = time };
                 r[userID] = react;
-                update["event"] = "REACT";
-                update["time"] = time;
+                update["event"] = "REACTED";
+                update["sendTime"] = time;
             }
             else
             {
                 r.Remove(userID, out _);
-                update["event"] = "UNREACT";
+                update["event"] = "UNREACTED";
             }
             rect.Update();
             AddUpdate(update);
@@ -961,7 +961,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
 
     public bool CanDo(string target, ChatAction action, string msgid = "")
     {
-        if (action == ChatAction.Read && group.publicGroup) return true;
+        if (action == ChatAction.Read && group.isPublic) return true;
 
         if (target.Contains(":") || target.Contains("."))
         {
