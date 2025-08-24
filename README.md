@@ -4,6 +4,12 @@ https://pamukky.netlify.app/v3
 Rewritten version of [PamukkyV3ServerNode](https://github.com/HAKANKOKCU/PamukkyV3ServerNode). Why? Javascript kinda sucks and the code was messy.
 
 In this rewrite, I made almost everything classes. So it should be better.
+
+# Used packages
+* Konscious.Security.Cryptography.Argon2
+* Magick.NET-Q8-AnyCPU
+* Newtonsoft.Json
+
 # How to run?
 ## Normal
 - Install dotnet
