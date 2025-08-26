@@ -1,4 +1,37 @@
 # Chat APIs
+## getmutedchats
+Gets muted chats of the user.
+### Usage
+(As body)
+```json
+{
+    "token": "(Token of the session)"
+}
+```
+### Responses
+#### Success
+```json
+{
+    "(ID of the chat)": { 
+        "allowTags": boolean // If stuff like @(userid) @chat and etc would still notify the user.
+    },
+    ...
+} 
+```
+
+# Chat APIs
+## mutechat
+Mutes/unmutes chat
+### Usage
+(As body)
+```json
+{
+    "token": "(Token of the session)",
+    "chatid": "(ID of the chat)",
+    "state": "(muted or tagsOnly or anything else[Which unmutes])"
+}
+```
+
 ## getmessages
 Gets messages in the range. For example, `#0-#48` is from first to 48. relative to end of chat, using `#^` instead would do it relative to oldest and giving an message id will point to it.
 ### Usage
@@ -8,6 +41,25 @@ Gets messages in the range. For example, `#0-#48` is from first to 48. relative 
     "token": "(Token of the session)",
     "chatid": "(ID of the chat)",
     "range": "(A range, look explaination at the top)"
+}
+```
+### Responses
+#### Success
+```json
+{
+    "(ID of the message)": { Message Object },
+    ...
+} 
+```
+
+## getpinnedmessages
+Gets all pinned messages.
+### Usage
+(As body)
+```json
+{
+    "token": "(Token of the session)",
+    "chatid": "(ID of the chat)"
 }
 ```
 ### Responses

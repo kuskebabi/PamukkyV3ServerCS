@@ -145,6 +145,34 @@ Adds a user to user's chats list (and vice versa).
 }
 ```
 
+## getnotifications
+Gets notifications of the session.
+### Usage
+(As body)
+```json
+{
+    "token": "(Token of the session)",
+    // Hold mode
+    "mode": "hold"
+}
+```
+### Responses
+#### Success
+```json
+{
+    "(ID of the notification)": { 
+        "chatid": "(ID of the chat)",
+        "userid": "(ID of the user)",
+        "user": {
+            "name" : "(Name of the user)",
+            "picture": "(Picture URL of the user)"
+        },
+        "content": "(Content of the message)"
+    },
+    ...
+} 
+```
+
 # User hook
 Updates from a user hook could be like these:
 

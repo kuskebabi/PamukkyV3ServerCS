@@ -101,6 +101,32 @@ Gets all roles of the group
 }
 ```
 
+## getgrouprole
+Gets current user's role in the group.
+## Usage
+(As body)
+```json
+{
+    "token": "(Token of the session, optional if group is set as public)",
+    "groupid": "(ID of the group)"
+}
+```
+### Responses
+#### Success
+```json
+{
+    "AdminOrder": 0,
+    "AllowMessageDeleting": true,
+    "AllowEditingSettings": true,
+    "AllowKicking": true,
+    "AllowBanning": true,
+    "AllowSending": true,
+    "AllowEditingUsers": true,
+    "AllowSendingReactions": true,
+    "AllowPinningMessages": true
+}
+```
+
 ## creategroup
 Makes user create a group (and join it)
 ## Usage

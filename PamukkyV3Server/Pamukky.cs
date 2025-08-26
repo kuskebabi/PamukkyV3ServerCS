@@ -616,8 +616,8 @@ internal class Pamukky
         }
         else if (action == "mutechat")
         {
-            var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
-            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("toggle") && a["toggle"] is bool)
+            var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("state"))
             {
                 string? uid = await GetUIDFromToken((a["token"] ?? "").ToString() ?? "");
                 if (uid != null)
@@ -628,12 +628,9 @@ internal class Pamukky
                         string chatid = (a["chatid"] ?? "").ToString() ?? "";
                         if (File.Exists("data/chat/" + chatid + "/chat"))
                         {
-                            if ((bool)a["toggle"] == true) // toggle true > mute, false > unmute.
+                            if (a["state"] == "muted" || a["state"] == "tagsOnly")
                             {
-                                if (!userconfig.mutedChats.ContainsKey(chatid))
-                                { //Don't add duplicates
-                                    userconfig.mutedChats[chatid] = new MutedChatData();
-                                }
+                                userconfig.mutedChats[chatid] = new MutedChatData() {allowTags = a["state"] == "tagsOnly"};
                             }
                             else
                             {
