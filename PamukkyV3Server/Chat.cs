@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Threading.Tasks;
 using Newtonsoft.Json;
 
 namespace PamukkyV3;
@@ -757,12 +756,23 @@ class Chat : OrderedDictionary<string, ChatMessage>
     }
 
     /// <summary>
-    /// Gets all pinned messages
+    /// Gets all pinned messages.
     /// </summary>
-    /// <returns></returns>
+    /// <returns>Pinned messages list.</returns>
     public Chat GetPinnedMessages()
     {
-        return pinnedMessages ?? new() { chatID = chatID, mainchat = this };
+        if (pinnedMessages == null)
+        {
+            pinnedMessages = new() { chatID = chatID, mainchat = this };
+            foreach (var kv in this)
+            {
+                if (kv.Value.isPinned)
+                {
+                    pinnedMessages[kv.Key] = kv.Value;
+                }
+            }
+        }
+        return pinnedMessages;
     }
     #endregion
     
@@ -1083,19 +1093,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                         foreach (var msg in newChat)
                             loadedChat.TryAdd(msg.Key, msg.Value);
 
-                        if (loadedChat.pinnedMessages == null)
-                        {
-                            loadedChat.pinnedMessages = new() { chatID = chatID, mainchat = loadedChat };
-                        }
-
-                        loadedChat.pinnedMessages.Clear();
-                        foreach (var kv in newChat)
-                        {
-                            if (kv.Value.isPinned)
-                            {
-                                loadedChat.pinnedMessages[kv.Key] = kv.Value;
-                            }
-                        }
+                        loadedChat.pinnedMessages = null;
                     }
                 };
             }
@@ -1136,14 +1134,6 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 }
             }
 
-            loadedChat.pinnedMessages = new() { chatID = chatID, mainchat = loadedChat };
-            foreach (var kv in loadedChat)
-            {
-                if (kv.Value.isPinned)
-                {
-                    loadedChat.pinnedMessages[kv.Key] = kv.Value;
-                }
-            }
             chatsCache[chatID] = loadedChat;
         }
 
