@@ -53,7 +53,7 @@ internal class Pamukky
         return cred.userID;
     }
 
-    static void SaveData() {
+    public static void SaveData() {
         Console.WriteLine("Saving Data...");
         Console.WriteLine("Saving Chats...");
         foreach (var c in Chat.chatsCache) { // Save chats in memory to files

@@ -5,6 +5,9 @@ using Newtonsoft.Json;
 
 namespace PamukkyV3;
 
+/// <summary>
+/// Class that creates a http listener and listens to requests on it.
+/// </summary>
 public class HTTPHandler
 {
     /// <summary>
@@ -42,7 +45,7 @@ public class HTTPHandler
         if ((url == "upload" && context.Request.HttpMethod.ToLower() == "post") || url.StartsWith("getmedia"))
         {
             int statuscode = 200;
-            bool manualRespond = false;
+            bool errorResponse = true;
             string res = "";
             if (url == "upload") // Http upload API
             {
@@ -56,7 +59,7 @@ public class HTTPHandler
                             int contentLength = int.Parse(context.Request.Headers["content-length"] ?? "0");
                             if (contentLength != 0)
                             {
-                                manualRespond = true;
+                                errorResponse = false;
                                 string id = "";
                                 do
                                 {
@@ -127,7 +130,7 @@ public class HTTPHandler
                         FileUpload? f = JsonConvert.DeserializeObject<FileUpload>(await File.ReadAllTextAsync("data/upload/" + file));
                         if (f != null)
                         {
-                            manualRespond = true;
+                            errorResponse = false;
                             //context.Response.AddHeader("Content-Length", f.size.ToString());
                             if (context.Request.Headers["sec-fetch-dest"] != "document")
                             {
@@ -194,7 +197,7 @@ public class HTTPHandler
                     res = JsonConvert.SerializeObject(new RequestHandler.ServerResponse("error"));
                 }
             }
-            if (!manualRespond)
+            if (errorResponse) // Send error stuff
                 try
                 {
                     context.Response.StatusCode = statuscode;
@@ -224,7 +227,7 @@ public class HTTPHandler
         }
     }
 
-    
+
     /// <summary>
     /// Starts the HTTP listener.
     /// </summary>

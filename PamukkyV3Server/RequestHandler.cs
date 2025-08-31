@@ -4,6 +4,9 @@ using Newtonsoft.Json.Linq;
 
 namespace PamukkyV3;
 
+/// <summary>
+/// Class that handles user requests with permission checks.
+/// </summary>
 public static class RequestHandler
 {
     /// <summary>
@@ -2521,9 +2524,7 @@ public static class RequestHandler
             #endregion
             else
             {
-                ActionReturn actionreturn = await DoAction(request.RequestName, request.Input);
-                statuscode = actionreturn.statusCode;
-                res = actionreturn.res;
+                return await DoAction(request.RequestName, request.Input);
             }
         }
         catch (Exception e)
@@ -2538,6 +2539,5 @@ public static class RequestHandler
             statusCode = statuscode,
             res = res
         };
-        //Console.WriteLine("Respone given to a request.");
     }
 }
