@@ -177,33 +177,30 @@ class ChatMessageFormatted : ChatMessage
                         FileUpload? f = JsonConvert.DeserializeObject<FileUpload>(File.ReadAllText(file));
                         if (f != null)
                         {
-                            string[] spl = f.contentType.Split("/");
-                            if (spl.Length > 1)
+                            var chatFile = new ChatFile() { url = fil, name = f.actualName, size = f.size };
+                            string contentType = f.contentType;
+                            if (contentType == "image/png" || contentType == "image/jpeg" || contentType == "image/gif" || contentType == "image/bmp")
                             {
-                                var chatFile = new ChatFile() { url = fil, name = f.actualName, size = f.size };
-                                string extension = spl[1].ToLower();
-                                if (extension == "png" || extension == "jpg" || extension == "jpeg" || extension == "gif" || extension == "bmp")
-                                {
-                                    if (gImages == null) gImages = new();
-                                    gImages.Add(chatFile);
-                                }
-                                else if (extension == "mp4")
-                                {
-                                    if (gVideos == null) gVideos = new();
-                                    gVideos.Add(chatFile);
-                                }
-                                else if (extension == "mpeg" || extension == "m4a")
-                                {
-                                    if (gAudio == null) gAudio = new();
-                                    gAudio.Add(chatFile);
-                                }
-                                else
-                                {
-                                    if (gFiles == null) gFiles = new();
-                                    gFiles.Add(chatFile);
-                                    //Console.WriteLine(extension);
-                                }
+                                if (gImages == null) gImages = new();
+                                gImages.Add(chatFile);
                             }
+                            else if (contentType == "video/mpeg" || contentType == "video/mp4")
+                            {
+                                if (gVideos == null) gVideos = new();
+                                gVideos.Add(chatFile);
+                            }
+                            else if (contentType == "audio/mpeg" || contentType == "audio/mp4")
+                            {
+                                if (gAudio == null) gAudio = new();
+                                gAudio.Add(chatFile);
+                            }
+                            else
+                            {
+                                if (gFiles == null) gFiles = new();
+                                gFiles.Add(chatFile);
+                                //Console.WriteLine(extension);
+                            }
+                            
                         }
                     }
                 }

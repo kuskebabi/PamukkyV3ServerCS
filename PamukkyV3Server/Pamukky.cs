@@ -53,14 +53,32 @@ internal class Pamukky
         return cred.userID;
     }
 
-    public static void SaveData() {
+    public static void SaveData()
+    {
         Console.WriteLine("Saving Data...");
         Console.WriteLine("Saving Chats...");
-        foreach (var c in Chat.chatsCache) { // Save chats in memory to files
+        foreach (var c in Chat.chatsCache)
+        { // Save chats in memory to files
             Console.WriteLine("Saving " + c.Key);
-            try {
+            try
+            {
                 c.Value.saveChat();
-            }catch (Exception e) {
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.ToString());
+            }
+        }
+        Console.WriteLine("Saving Online status...");
+        foreach (var p in UserProfile.userProfileCache)
+        { // Save online status in memory to files
+            Console.WriteLine("Saving " + p.Key);
+            try
+            {
+                p.Value.SaveStatus();
+            }
+            catch (Exception e)
+            {
                 Console.WriteLine(e.ToString());
             }
         }

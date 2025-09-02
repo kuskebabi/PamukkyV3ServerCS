@@ -92,7 +92,7 @@ public class HTTPHandler
                                 context.Response.KeepAlive = false;
                                 context.Response.Close();
                                 string extension = u.contentType.Split("/")[1];
-                                if (extension == "png" || extension == "jpg" || extension == "jpeg" || extension == "gif" || extension == "bmp")
+                                if (extension == "png" || extension == "jpeg" || extension == "gif" || extension == "bmp")
                                     MediaProcesser.AddJob(id);
                             }
                             else
@@ -137,6 +137,13 @@ public class HTTPHandler
                                 context.Response.AddHeader("Content-Disposition", "attachment; filename=" + HttpUtility.UrlEncode(f.actualName));
                             }
                             context.Response.StatusCode = statuscode;
+
+                            string extension = f.contentType.Split("/")[1];
+                            if (!(extension == "png" || extension == "jpeg" || extension == "gif" || extension == "bmp"))
+                            {
+                                type = "file";
+                            }
+
                             string path = "data/upload/" + file + "." + (type == "thumb" ? "thumb" : "file");
                             async void sendFile()
                             {

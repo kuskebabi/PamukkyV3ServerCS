@@ -186,7 +186,7 @@ class UserStatus
     /// ID of the user.
     /// </summary>
     public string user;
-    
+
     /// <summary>
     /// Gets if user is typing in a chat
     /// </summary>
@@ -265,6 +265,14 @@ class UserStatus
 }
 
 /// <summary>
+/// Last status of user
+/// </summary>
+class LastUserStatus
+{
+    public DateTime lastOnline = DateTime.MinValue;
+}
+
+/// <summary>
 /// Profile of a user.
 /// </summary>
 class UserProfile
@@ -299,7 +307,7 @@ class UserProfile
             hook["online"] = "Online";
         }
         Task.Delay(10100).ContinueWith((task) =>
-        { //save after 5 mins and recall
+        { // re-check after 10 seconds to set user as not online or not
             string onlineStatus = GetOnline();
             if (onlineStatus != "Online")
             {
@@ -372,6 +380,16 @@ class UserProfile
             {
                 up.userID = userID;
                 userProfileCache[userID] = up;
+
+                if (File.Exists("data/info/" + userID + "/laststatus"))
+                {
+                    LastUserStatus? lastUserStatus = JsonConvert.DeserializeObject<LastUserStatus>(await File.ReadAllTextAsync("data/info/" + userID + "/laststatus"));
+                    if (lastUserStatus != null)
+                    {
+                        up.lastOnlineTime = lastUserStatus.lastOnline;
+                    }
+                }
+
                 return up;
             }
         }
@@ -394,13 +412,24 @@ class UserProfile
     /// <summary>
     /// Saves the profile.
     /// </summary>
-    public void Save()
+    public void Save(bool notify = true)
     {
         foreach (var hook in updateHooks)
         {
             hook["profileUpdate"] = this;
         }
         File.WriteAllTextAsync("data/info/" + userID + "/profile", JsonConvert.SerializeObject(this));
+    }
+
+    /// <summary>
+    /// Saves last user status like last online.
+    /// </summary>
+    public void SaveStatus()
+    {
+        File.WriteAllTextAsync("data/info/" + userID + "/laststatus", JsonConvert.SerializeObject(new LastUserStatus()
+        {
+            lastOnline = lastOnlineTime ?? DateTime.MinValue
+        }));
     }
 }
 
