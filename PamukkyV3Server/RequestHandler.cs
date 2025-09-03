@@ -62,7 +62,11 @@ public static class RequestHandler
     {
         string res = "";
         int statuscode = 200;
-        if (action == "signup")
+        if (action == "tos")
+        {
+            res = Pamukky.serverTOS;
+        }
+        else if (action == "signup")
         {
             var a = JsonConvert.DeserializeObject<LoginCredential>(body);
             if (a != null)

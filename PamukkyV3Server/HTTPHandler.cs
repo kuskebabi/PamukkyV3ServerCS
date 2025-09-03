@@ -240,7 +240,7 @@ public class HTTPHandler
     /// </summary>
     /// <param name="httpport">HTTP port</param>
     /// <param name="httpsport">HTTPS port.</param>
-    public void Start(string httpport, string? httpsport = null)
+    public void Start(int httpport, int? httpsport = null)
     {
         Console.WriteLine("Http listener starting...");
 

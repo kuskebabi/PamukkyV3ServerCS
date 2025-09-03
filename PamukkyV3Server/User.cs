@@ -284,6 +284,8 @@ class UserProfile
     [JsonIgnore]
     public List<UpdateHook> updateHooks = new();
 
+    private LastUserStatus lastStatus = new();
+
     public string name = "User";
     public string picture = "";
     public string bio = "Hello!";
@@ -386,6 +388,7 @@ class UserProfile
                     LastUserStatus? lastUserStatus = JsonConvert.DeserializeObject<LastUserStatus>(await File.ReadAllTextAsync("data/info/" + userID + "/laststatus"));
                     if (lastUserStatus != null)
                     {
+                        up.lastStatus = lastUserStatus;
                         up.lastOnlineTime = lastUserStatus.lastOnline;
                     }
                 }
@@ -412,7 +415,7 @@ class UserProfile
     /// <summary>
     /// Saves the profile.
     /// </summary>
-    public void Save(bool notify = true)
+    public void Save()
     {
         foreach (var hook in updateHooks)
         {
@@ -426,10 +429,11 @@ class UserProfile
     /// </summary>
     public void SaveStatus()
     {
-        File.WriteAllTextAsync("data/info/" + userID + "/laststatus", JsonConvert.SerializeObject(new LastUserStatus()
+        if (lastStatus.lastOnline != lastOnlineTime && lastOnlineTime != null)
         {
-            lastOnline = lastOnlineTime ?? DateTime.MinValue
-        }));
+            lastStatus.lastOnline = (DateTime)lastOnlineTime;
+            File.WriteAllTextAsync("data/info/" + userID + "/laststatus", JsonConvert.SerializeObject(lastStatus));
+        }
     }
 }
 

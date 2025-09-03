@@ -12,23 +12,42 @@ internal class Pamukky
     // ---- Caching ----
     public static ConcurrentDictionary<string, LoginCredential> loginCreds = new();
 
+    // ---- Config ----
+    public static ServerConfig config = new();
+    public static string serverTOS = "No TOS given.";
+
+    public class ServerConfig
+    {
+        public int httpPort = 4268;
+        public int? httpsPort = null;
+        public string? termsOfServiceFile = null;
+        public string publicUrl = "";
+    }
+
     /// <summary>
     /// Gets login credentials from token or if preventBypass is false from email too.
     /// </summary>
     /// <param name="token">Token of the login or email (if preventBypass is true)</param>
     /// <param name="preventBypass"></param>
     /// <returns>loginCred if successful, null if "bypassed" or failled.</returns>
-    public static async Task<LoginCredential?> GetLoginCred(string token, bool preventBypass = true) {
+    public static async Task<LoginCredential?> GetLoginCred(string token, bool preventBypass = true)
+    {
         //!preventbypass is when you wanna use the token to get other info
-        if (token.Contains("@") && preventBypass) { //bypassing
+        if (token.Contains("@") && preventBypass)
+        { //bypassing
             return null;
         }
-        if (loginCreds.ContainsKey(token)) {
+        if (loginCreds.ContainsKey(token))
+        {
             return loginCreds[token];
-        }else {
-            if (File.Exists("data/auth/" + token)) {
+        }
+        else
+        {
+            if (File.Exists("data/auth/" + token))
+            {
                 LoginCredential? up = JsonConvert.DeserializeObject<LoginCredential>(await File.ReadAllTextAsync("data/auth/" + token));
-                if (up != null) {
+                if (up != null)
+                {
                     loginCreds[token] = up;
                     return up;
                 }
@@ -100,11 +119,12 @@ internal class Pamukky
             NullValueHandling = NullValueHandling.Ignore //This is the main reason I was used null. Doesn't quite work ig...
         };
 
-        string HTTPport = "4268";
-        string? HTTPSport = null;
-
+        int HTTPport = 4268;
+        int? HTTPSport = null;
+        string? configPath = null;
 
         string argMode = "";
+
         foreach (string arg in args)
         {
             if (arg.StartsWith("--"))
@@ -115,16 +135,22 @@ internal class Pamukky
             {
                 switch (argMode)
                 {
-                    case "port": //Normal HTTP port
-                        HTTPport = arg;
-                        break;
-                    case "federation-url":
-                        Federation.thisServerURL = arg;
-                        break;
-                    case "https-port": // HTTPS port, doesn't quite work. you SHOULD(do NOT make your server in http.) use some forwarder to make http to https.
-                        HTTPSport = arg;
+                    case "config": // HTTPS port, doesn't quite work. you SHOULD(do NOT make your server in http.) use some forwarder to make http to https.
+                        configPath = arg;
                         break;
                 }
+            }
+        }
+
+        if (File.Exists(configPath))
+        {
+            config = JsonConvert.DeserializeObject<ServerConfig>(File.ReadAllText(configPath ?? "")) ?? new();
+            HTTPport = config.httpPort;
+            HTTPSport = config.httpsPort;
+            Federation.thisServerURL = config.publicUrl;
+            if (File.Exists(config.termsOfServiceFile))
+            {
+                serverTOS = File.ReadAllText(config.termsOfServiceFile);
             }
         }
 

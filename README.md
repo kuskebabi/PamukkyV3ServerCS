@@ -14,12 +14,30 @@ In this rewrite, I made almost everything classes. So it should be better.
 ## Normal
 - Install dotnet
 - cd to the folder which has .csproj
-- `dotnet run [--port (port) --https-port (port) --federation-url (public url)]` ([] is optional)
+- `dotnet run [--config file.json]` ([] is optional)
 
 ## Docker
 - cd to the folder which has .csproj
 - Build the docker: `docker build -t pamukky -f Dockerfile .`
 - Run the docker: `docker run -p 4268:4268 pamukky`
+
+## Config file
+All stuff here is optional.
+
+```json
+{
+    "httpPort": 4268,
+    "httpsPort": 4280,
+    "termsOfServiceFile": "/home/user/pamukkytos.txt",
+    "publicUrl": "https://...:4280/"
+}
+```
+
+* `httpPort` Port for http
+* `httpPort` Port for https. null for none.
+* `termsOfServiceFile` File path that has server terms of service. null for none.
+* `publicUrl` Public URL of the server for federation. Can be a empty string.
+
 
 # Status
 I think it's usable, but expect some bugs.
