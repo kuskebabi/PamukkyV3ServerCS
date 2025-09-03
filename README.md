@@ -36,7 +36,7 @@ All stuff here is optional.
 * `httpPort` Port for http
 * `httpPort` Port for https. null for none.
 * `termsOfServiceFile` File path that has server terms of service. null for none.
-* `publicUrl` Public URL of the server for federation. Can be a empty string.
+* `publicUrl` Public URL of the server for federation. null for none.
 
 
 # Status

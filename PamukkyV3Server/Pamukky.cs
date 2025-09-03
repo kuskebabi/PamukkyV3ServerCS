@@ -21,7 +21,7 @@ internal class Pamukky
         public int httpPort = 4268;
         public int? httpsPort = null;
         public string? termsOfServiceFile = null;
-        public string publicUrl = "";
+        public string? publicUrl = null;
     }
 
     /// <summary>
@@ -147,7 +147,7 @@ internal class Pamukky
             config = JsonConvert.DeserializeObject<ServerConfig>(File.ReadAllText(configPath ?? "")) ?? new();
             HTTPport = config.httpPort;
             HTTPSport = config.httpsPort;
-            Federation.thisServerURL = config.publicUrl;
+            if (config.publicUrl != null) Federation.thisServerURL = config.publicUrl;
             if (File.Exists(config.termsOfServiceFile))
             {
                 serverTOS = File.ReadAllText(config.termsOfServiceFile);
