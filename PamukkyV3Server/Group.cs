@@ -53,6 +53,7 @@ class Group
         {
             return groupsCache[gid];
         }
+
         loadingGroups.Add(gid);
 
         if (gid.Contains("@"))
@@ -79,14 +80,13 @@ class Group
                     }
                     else if (g is bool)
                     {
+                        loadingGroups.Remove(gid);
                         if ((bool)g)
                         {
-                            loadingGroups.Remove(gid);
                             return new Group() { groupID = gid }; //make a interface enough to join it.
                         }
                         else
                         {
-                            loadingGroups.Remove(gid);
                             return null;
                         }
                     }

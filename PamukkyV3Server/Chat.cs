@@ -840,14 +840,18 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <param name="userID">ID of the user that will react.</param>
     /// <param name="reaction">Reaction emoji to send.</param>
     /// <param name="toggle">Null to toggle(default), true to add, false to remove.</param>
+    /// <param name="sendTime">Sets sent date of reaction. Null (default) for auto.</param>
     /// <returns>All reactions that are in the message.</returns>
-    public MessageReactions ReactMessage(string msgID, string userID, string reaction, bool? toggle = null)
+    public MessageReactions ReactMessage(string msgID, string userID, string reaction, bool? toggle = null, DateTime? sendTime = null)
     {
         if (ContainsKey(msgID))
         {
             ChatMessage msg = this[msgID];
             MessageReactions rect = msg.reactions;
             MessageEmojiReactions r = rect.Get(reaction, true);
+            
+            // set sendtime if null (which is normally)
+            if (sendTime == null) sendTime = DateTime.Now;
 
             // set toggle or ignore action if it was done already.
             if (toggle == null) toggle = !r.ContainsKey(userID);
@@ -862,11 +866,10 @@ class Chat : OrderedDictionary<string, ChatMessage>
             update["reaction"] = reaction;
             if (toggle == true)
             {
-                DateTime time = DateTime.Now;
-                MessageReaction react = new() { senderUID = userID, reaction = reaction, sendTime = time };
+                MessageReaction react = new() { senderUID = userID, reaction = reaction, sendTime = (DateTime)sendTime };
                 r[userID] = react;
                 update["event"] = "REACTED";
-                update["sendTime"] = time;
+                update["sendTime"] = sendTime;
             }
             else
             {

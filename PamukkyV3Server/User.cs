@@ -298,6 +298,12 @@ class UserProfile
     }
     #endregion
 
+    public string onlineStatus
+    {
+        get { return GetOnline(); }
+        set { SetOnlineString(value); }
+    }
+
     /// <summary>
     /// Sets the user online.
     /// </summary>
@@ -310,7 +316,6 @@ class UserProfile
         }
         Task.Delay(10100).ContinueWith((task) =>
         { // re-check after 10 seconds to set user as not online or not
-            string onlineStatus = GetOnline();
             if (onlineStatus != "Online")
             {
                 foreach (var hook in updateHooks)
@@ -319,6 +324,62 @@ class UserProfile
                 }
             }
         });
+    }
+
+
+    /// <summary>
+    /// Sets the user online or offline depending on the datetime given.
+    /// </summary>
+    public void SetOnlineDateTime(DateTime time)
+    {
+        lastOnlineTime = time;
+
+        if (IsOnline())
+        {
+            foreach (var hook in updateHooks)
+            {
+                hook["online"] = "Online";
+            }
+            Task.Delay(10100).ContinueWith((task) =>
+            { // re-check after 10 seconds to set user as not online or not
+                if (onlineStatus != "Online")
+                {
+                    foreach (var hook in updateHooks)
+                    {
+                        hook["online"] = onlineStatus;
+                    }
+                }
+            });
+        }
+        else
+        {
+            foreach (var hook in updateHooks)
+            {
+                hook["online"] = onlineStatus;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sets the user online or offline depending on the datetime given.
+    /// </summary>
+    public void SetOnlineString(string status)
+    {
+        if (status == "Online")
+        {
+            SetOnline();
+        }
+        else
+        {
+            try
+            {
+                SetOnlineDateTime(DateTime.Parse(status, null, System.Globalization.DateTimeStyles.RoundtripKind));
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+        }
     }
 
     /// <summary>
@@ -333,7 +394,7 @@ class UserProfile
         }
         else
         {
-            if (lastOnlineTime.Value.AddSeconds(10) > DateTime.Now)
+            if (IsOnline())
             {
                 return "Online";
             }
@@ -342,6 +403,16 @@ class UserProfile
                 return Helpers.DateToString(lastOnlineTime.Value);
             }
         }
+    }
+
+    /// <summary>
+    /// Gets if user is online
+    /// </summary>
+    /// <returns>true if online, false if offline.</returns>
+    public bool IsOnline()
+    {
+        if (lastOnlineTime == null) lastOnlineTime = DateTime.MinValue;
+        return lastOnlineTime.Value.AddSeconds(10) > DateTime.Now;
     }
 
     /// <summary>

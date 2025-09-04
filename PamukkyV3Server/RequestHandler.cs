@@ -2163,6 +2163,42 @@ public static class RequestHandler
                     res = JsonConvert.SerializeObject(new ServerResponse("error", "INVALID", "Couldn't parse request."));
                 }
             }
+            else if (request.RequestName == "federationgetuser")
+            {
+                Dictionary<string, string>? fedrequest = JsonConvert.DeserializeObject<Dictionary<string, string>>(request.Input);
+                if (fedrequest != null)
+                {
+                    Federation? fed = Federation.GetFromRequestStrDict(fedrequest);
+                    if (fed != null)
+                    {
+                        if (fedrequest.ContainsKey("userid"))
+                        {
+                            string id = fedrequest["userid"].Split("@")[0];
+                            UserProfile? profile = await UserProfile.Get(id);
+                            if (profile != null)
+                            {
+                                fed.cachedUpdates.AddHook(profile);
+                                res = JsonConvert.SerializeObject(profile);
+                            }
+                            else
+                            {
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group not found."));
+                            }
+                        }
+                        else
+                        {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGID", "Request doesn't contain a group ID."));
+                        }
+                    }
+                }
+                else
+                {
+                    statuscode = 411;
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "INVALID", "Couldn't parse request."));
+                }
+            }
             else if (request.RequestName == "federationgetgroup")
             {
                 Dictionary<string, string>? fedrequest = JsonConvert.DeserializeObject<Dictionary<string, string>>(request.Input);
@@ -2413,7 +2449,6 @@ public static class RequestHandler
                                 if (type == "chat")
                                 {
                                     string id = target.Split("@")[0];
-                                    Console.WriteLine(target);
                                     Chat? chat = await Chat.GetChat(id + "@" + fed.serverURL);
                                     if (chat == null)
                                     {
@@ -2445,18 +2480,18 @@ public static class RequestHandler
                                                 string mid = (update["id"] ?? "").ToString() ?? "";
                                                 if (eventn == "NEWMESSAGE")
                                                 {
-                                                    if ((update["sender"] ?? "").ToString() == "0")
+                                                    if ((update["senderUID"] ?? "").ToString() == "0")
                                                     {
                                                         continue; //Don't allow Pamuk messages from other federations, because they are probably echoes.
                                                     }
 
                                                     // IDK how else to do this...
                                                     string? forwardedFrom = null;
-                                                    if (update.ContainsKey("forwardedfrom"))
+                                                    if (update.ContainsKey("forwardedFromUID"))
                                                     {
-                                                        if (update["forwardedfrom"] != null)
+                                                        if (update["forwardedFromUID"] != null)
                                                         {
-                                                            forwardedFrom = (update["forwardedfrom"] ?? "").ToString();
+                                                            forwardedFrom = (update["forwardedFromUID"] ?? "").ToString();
                                                             if (forwardedFrom == "")
                                                             {
                                                                 forwardedFrom = null;
@@ -2466,26 +2501,25 @@ public static class RequestHandler
 
                                                     ChatMessage msg = new ChatMessage()
                                                     {
-                                                        senderUID = (update["sender"] ?? "").ToString() ?? "",
+                                                        senderUID = (update["senderUID"] ?? "").ToString() ?? "",
                                                         content = (update["content"] ?? "").ToString() ?? "",
-                                                        sendTime = (DateTime?)update["time"] ?? DateTime.Now,
-                                                        replyMessageID = update.ContainsKey("replymsgid") ? update["replymsgid"] == null ? null : (update["replymsgid"] ?? "").ToString() : null,
+                                                        sendTime = (DateTime?)update["sendTime"] ?? DateTime.Now,
+                                                        replyMessageID = update.ContainsKey("replyMessageID") ? update["replyMessageID"] == null ? null : (update["replyMessageID"] ?? "").ToString() : null,
                                                         forwardedFromUID = forwardedFrom,
                                                         files = update.ContainsKey("files") && (update["files"] is JArray) ? ((JArray?)update["files"] ?? new JArray()).ToObject<List<string>>() : null,
-                                                        isPinned = update["pinned"] != null ? (bool?)update["pinned"] ?? false : false,
+                                                        isPinned = update["isPinned"] != null ? (bool?)update["isPinned"] ?? false : false,
                                                         reactions = update.ContainsKey("reactions") && (update["reactions"] is JObject) ? ((JObject?)update["reactions"] ?? new JObject()).ToObject<MessageReactions>() ?? new MessageReactions() : new MessageReactions(),
                                                     };
                                                     fed.FixMessage(msg);
                                                     chat.SendMessage(msg, true, mid);
                                                 }
-                                                else if (eventn.StartsWith("REACT"))
+                                                else if (eventn.EndsWith("REACTED"))
                                                 {
-                                                    if (update.ContainsKey("id") && update.ContainsKey("userID") && update.ContainsKey("reaction"))
+                                                    if (update.ContainsKey("id") && update.ContainsKey("senderUID") && update.ContainsKey("reaction"))
                                                     {
-                                                        if (update["id"] != null && update["userID"] != null && update["reaction"] != null)
+                                                        if (update["id"] != null && update["senderUID"] != null && update["reaction"] != null)
                                                         {
-                                                            Console.WriteLine("c");
-                                                            chat.ReactMessage(mid, fed.FixUserID((update["userID"] ?? "").ToString() ?? ""), (update["reaction"] ?? "").ToString() ?? "", eventn == "REACT");
+                                                            chat.ReactMessage(mid, fed.FixUserID((update["senderUID"] ?? "").ToString() ?? ""), (update["reaction"] ?? "").ToString() ?? "", eventn == "REACTED", update.ContainsKey("sendTime") ? (DateTime?)update["sendTime"] : null);
                                                         }
                                                     }
                                                 }
@@ -2508,6 +2542,40 @@ public static class RequestHandler
                                     {
                                         statuscode = 404;
                                         res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCHAT", "Chat not found."));
+                                    }
+                                }
+                                else if (type == "user")
+                                {
+                                    string id = target.Split("@")[0];
+                                    Console.WriteLine(target);
+                                    UserProfile? profile = await UserProfile.Get(id + "@" + fed.serverURL);
+                                    if (profile != null)
+                                    {
+                                        var updates = updatehook.Value;
+                                        if (updates.ContainsKey("online"))
+                                        {
+                                            string onlineStatus = (updates["online"] ?? "").ToString() ?? "";
+                                            Console.WriteLine(onlineStatus);
+                                            profile.onlineStatus = onlineStatus;
+                                        }
+
+                                        if (updates.ContainsKey("profileUpdate"))
+                                        {
+                                            var update = (JObject?)updates["profileUpdate"];
+                                            if (update != null)
+                                            {
+                                                string name = (update["name"] ?? "").ToString() ?? "";
+                                                profile.name = name;
+
+                                                string picture = (update["picture"] ?? "").ToString() ?? "";
+                                                profile.picture = picture;
+
+                                                string bio = (update["bio"] ?? "").ToString() ?? "";
+                                                profile.bio = bio;
+
+                                                profile.Save();
+                                            }
+                                        }
                                     }
                                 }
                             }

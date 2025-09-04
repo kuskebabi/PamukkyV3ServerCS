@@ -472,10 +472,10 @@ class Federation
     {
         if (!await Reconnect()) return null;
 
-        StringContent sc = new(JsonConvert.SerializeObject(new { uid = userID }));
+        StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, userid = userID }));
         try
         {
-            var request = await GetHttpClient().PostAsync(new Uri(new Uri(serverURL), "getuser"), sc);
+            var request = await GetHttpClient().PostAsync(new Uri(new Uri(serverURL), "federationgetuser"), sc);
             string resbody = await request.Content.ReadAsStringAsync();
             Console.WriteLine("user " + resbody);
             var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);

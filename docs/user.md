@@ -94,7 +94,8 @@ This API allows to get profile of a user.
 {
     "name": "(Name of the user)",
     "picture": "(Picture URL of the user)",
-    "bio": "(Bio of the user)"
+    "bio": "(Bio of the user)",
+    "onlineStatus": "(Same as getonline. Online status of the user)"
 } 
 ```
 
