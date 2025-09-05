@@ -112,7 +112,7 @@ class Federation
     /// </summary>
     public async void PushUpdates()
     {
-        //Console.WriteLine("pushtick");
+        Console.WriteLine("pushtick");
         if (await Reconnect())
         {
             UpdateHooks updates = await cachedUpdates.waitForUpdates();
@@ -322,6 +322,7 @@ class Federation
                 Group? group = JsonConvert.DeserializeObject<Group>(resbody);
                 if (group == null) return null;
                 FixGroup(group);
+                cachedUpdates.AddHook(group);
                 return group;
             }
         }
@@ -445,7 +446,6 @@ class Federation
             {
                 Chat? chat = JsonConvert.DeserializeObject<Chat>(resbody);
                 if (chat == null) return null;
-                chat.connectedFederations.Add(this);
                 chat.chatID = chatID;
                 foreach (ChatMessage msg in chat.Values)
                 {

@@ -19,9 +19,10 @@ Adds a hook to listen.
 * Before the `:`, it can be these:
     * `chat` which idenifies a chat
     * `user` which idenifies a user
+    * `group` which idenifies a group
 * After the `:`, it would have ID of the idenifier.
 
-Examples: `chatslist`, `chat:cYcfOPwMgE6X2WZo8EWrSw`
+Examples: `chatslist`, `chat:cYcfOPwMgE6X2WZo8EWrSw`, `group:cYcfOPwMgE6X2WZo8EWrSw`
 
 ### getupdates (Hooks mode)
 Gets updates of all hooks. If there is none, server would wait for one for 60 seconds and if there is still none, will return a empty object (`{}`)

@@ -292,11 +292,6 @@ class Chat : OrderedDictionary<string, ChatMessage>
     public bool wasUpdated = false;
 
     /// <summary>
-    /// List to hold federations that are connected/joined to this chat.
-    /// </summary>
-    public List<Federation> connectedFederations = new();
-
-    /// <summary>
     /// Chat class to cache pinned messages.
     /// </summary>
     public Chat? pinnedMessages;
@@ -976,6 +971,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
         if (target.Contains(":") || target.Contains("."))
         {
             //Console.WriteLine("Fed Allow");
+            // If federations weren't still allowed no matter what, that would result in sync issues.
             return true;
         }
 

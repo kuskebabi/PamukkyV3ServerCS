@@ -277,12 +277,12 @@ class LastUserStatus
 /// </summary>
 class UserProfile
 {
-    [JsonIgnore]
     public static ConcurrentDictionary<string, UserProfile> userProfileCache = new();
     [JsonIgnore]
     public string userID = "";
     [JsonIgnore]
     public List<UpdateHook> updateHooks = new();
+    public static List<string> loadingProfiles = new();
 
     private LastUserStatus lastStatus = new();
 
@@ -422,10 +422,20 @@ class UserProfile
     /// <returns></returns>
     public static async Task<UserProfile?> Get(string userID)
     {
+        if (loadingProfiles.Contains(userID))
+        {
+            while (loadingProfiles.Contains(userID))
+            {
+                await Task.Delay(500);
+            }
+        }
+
         if (userProfileCache.ContainsKey(userID))
         {
             return userProfileCache[userID];
         }
+
+        loadingProfiles.Add(userID);
 
         if (userID.Contains("@"))
         {
@@ -441,7 +451,7 @@ class UserProfile
                     up.userID = userID;
                     userProfileCache[userID] = up;
                     up.Save(); // Save the user from the federation in case it goes offline after some time.
-
+                    loadingProfiles.Remove(userID);
                     return up;
                 }
             }
@@ -464,9 +474,12 @@ class UserProfile
                     }
                 }
 
+                loadingProfiles.Remove(userID);
                 return up;
             }
         }
+
+        loadingProfiles.Remove(userID);
 
         return null;
     }
@@ -647,147 +660,4 @@ class ChatItem
     // Optional because depends on it's type.
     public string? user = null;
     public string? group = null;
-}
-
-class UpdateHook : ConcurrentDictionary<string, object?>
-{
-    /// <summary>
-    /// User ID of the owner of this hook.
-    /// </summary>
-    public string target = "";
-}
-class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
-{
-    /// <summary>
-    /// "Token" of the user or server that owns these hooks.
-    /// </summary>
-    public string token = "";
-
-    /// <summary>
-    /// Filters all the updates to only have ones with new updates and clears them.
-    /// </summary>
-    /// <param name="userToken">Token of the client</param>
-    /// <returns></returns>
-    public UpdateHooks GetNewUpdates()
-    {
-        UpdateHooks rtrn = new();
-        foreach (var hook in this)
-        {
-            if (hook.Value.Count > 0)
-            {
-                UpdateHook uhook = new();
-                foreach (var kv in hook.Value) {
-                    uhook[kv.Key] = kv.Value;
-                }
-                rtrn[hook.Key] = uhook;
-                hook.Value.Clear();
-            }
-        }
-        return rtrn;
-    }
-
-    /// <summary>
-    /// Waits for new updates to happen or timeout and returns them.
-    /// </summary>
-    /// <param name="userToken">Token of the client..</param>
-    /// <param name="maxWait">How long should it wait before giving up? each count adds 100ms more. Default is a minute.</param>
-    /// <returns>All update hooks</returns>
-    public async Task<UpdateHooks> waitForUpdates(int maxWait = 600)
-    {
-
-        int wait = maxWait;
-        var updates = GetNewUpdates();
-
-        while (updates.Count == 0 && wait > 0)
-        {
-            await Task.Delay(100);
-            updates = GetNewUpdates();
-            --wait;
-        }
-
-        return updates;
-    }
-
-    /// <summary>
-    /// Adds a update hook for a client
-    /// </summary>
-    /// <param name="target">Can be Chat, UserProfile and UserChatsList.</param>
-    public async void AddHook(object target)
-    {
-        string hookName;
-
-        if (target is Chat)
-        {
-            hookName = "chat:" + ((Chat)target).chatID;
-        }
-        else if (target is UserProfile)
-        {
-            hookName = "user:" + ((UserProfile)target).userID;
-        }
-        else if (target is UserChatsList)
-        {
-            hookName = "chatslist";
-        }
-        else
-        {
-            throw new InvalidCastException("target only can be Chat, UserProfile or UserChatsList.");
-        }
-
-        if (ContainsKey(hookName))
-        { //Don't do duplicates.
-            this[hookName].Clear(); // Clear the hook.
-            return;
-        }
-        string ttarget = token;
-        if (ttarget.Contains(":") || ttarget.Contains("."))
-        {
-            Console.WriteLine("Fed create hooks");
-        }
-        else
-        {
-            ttarget = await Pamukky.GetUIDFromToken(token) ?? "";
-        }
-        UpdateHook hook = new() {target = ttarget};
-        this[hookName] = hook;
-
-        if (target is Chat)
-        {
-            Chat chat = (Chat)target;
-            if (chat.CanDo(ttarget, Chat.ChatAction.Read))
-                chat.updateHooks.Add(hook);
-        }
-        else if (target is UserProfile)
-        {
-            UserProfile profile = (UserProfile)target;
-            profile.updateHooks.Add(hook);
-        }
-        else if (target is UserChatsList)
-        {
-            UserChatsList chatsList = (UserChatsList)target;
-            if (chatsList.userID == ttarget) // This check is kinda useless as you can't really select which user to and its always current one. Also ignoring federations for now...
-            {
-                chatsList.hooks.Add(hook);
-            }
-        }
-    }
-}
-
-class Updaters : ConcurrentDictionary<string, UpdateHooks>
-{
-    static Updaters updaters = new();
-
-    /// <summary>
-    /// Gets all the updates even if there is none.
-    /// </summary>
-    /// <param name="userToken">Token of the client</param>
-    /// <returns>All update hooks</returns>
-    public static UpdateHooks Get(string userToken)
-    {
-        if (!updaters.ContainsKey(userToken))
-        {
-            updaters[userToken] = new() {token = userToken};
-        }
-
-        return updaters[userToken];
-    }
 }

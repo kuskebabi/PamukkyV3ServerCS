@@ -504,6 +504,18 @@ public static class RequestHandler
                                     res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                                 }
                                 break;
+                            case "group":
+                                Group? group = await Group.Get(id);
+                                if (group != null)
+                                {
+                                    updhooks.AddHook(group);
+                                }
+                                else
+                                {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
+                                }
+                                break;
                         }
                     }
                     else
@@ -1423,7 +1435,7 @@ public static class RequestHandler
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
-                    if (gp.CanDo(uid, Group.groupAction.Read))
+                    if (gp.CanDo(uid, Group.GroupAction.Read))
                     {
                         res = JsonConvert.SerializeObject(new GroupInfo()
                         {
@@ -1473,7 +1485,7 @@ public static class RequestHandler
                         Group? gp = await Group.Get(a["id"]);
                         if (gp != null)
                         {
-                            if (gp.CanDo(uid, Group.groupAction.Read))
+                            if (gp.CanDo(uid, Group.GroupAction.Read))
                             {
                                 res = JsonConvert.SerializeObject(new GroupInfo()
                                 {
@@ -1512,7 +1524,7 @@ public static class RequestHandler
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
-                    if (gp.CanDo(uid, Group.groupAction.Read))
+                    if (gp.CanDo(uid, Group.GroupAction.Read))
                     {
                         res = JsonConvert.SerializeObject(gp.members);
                     }
@@ -1543,7 +1555,7 @@ public static class RequestHandler
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
-                    if (gp.CanDo(uid, Group.groupAction.Read))
+                    if (gp.CanDo(uid, Group.GroupAction.Read))
                     {
                         res = JsonConvert.SerializeObject(gp.bannedMembers);
                     }
@@ -1574,7 +1586,7 @@ public static class RequestHandler
                 string uid = await Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                 if (gp != null)
                 {
-                    if (gp.CanDo(uid, Group.groupAction.Read))
+                    if (gp.CanDo(uid, Group.GroupAction.Read))
                     {
                         res = gp.members.Count.ToString();
                     }
@@ -1605,7 +1617,7 @@ public static class RequestHandler
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
-                    if (gp.CanDo(uid, Group.groupAction.Read))
+                    if (gp.CanDo(uid, Group.GroupAction.Read))
                     {
                         res = JsonConvert.SerializeObject(gp.roles);
                     }
@@ -1777,7 +1789,7 @@ public static class RequestHandler
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (gp.CanDo(uid, Group.groupAction.Kick, a["userid"] ?? ""))
+                        if (gp.CanDo(uid, Group.GroupAction.Kick, a["userid"] ?? ""))
                         {
                             if (await gp.RemoveUser(a["userid"] ?? ""))
                             {
@@ -1825,7 +1837,7 @@ public static class RequestHandler
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (gp.CanDo(uid, Group.groupAction.Ban, a["userid"] ?? ""))
+                        if (gp.CanDo(uid, Group.GroupAction.Ban, a["userid"] ?? ""))
                         {
                             if (await gp.BanUser(a["userid"] ?? ""))
                             {
@@ -1873,7 +1885,7 @@ public static class RequestHandler
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (gp.CanDo(uid, Group.groupAction.Ban, a["userid"] ?? ""))
+                        if (gp.CanDo(uid, Group.GroupAction.Ban, a["userid"] ?? ""))
                         {
                             gp.UnbanUser(a["userid"] ?? "");
                             gp.Save();
@@ -1913,7 +1925,7 @@ public static class RequestHandler
                     Group? gp = await Group.Get(a["groupid"].ToString() ?? "");
                     if (gp != null)
                     {
-                        if (gp.CanDo(uid, Group.groupAction.EditGroup))
+                        if (gp.CanDo(uid, Group.GroupAction.EditGroup))
                         {
                             if (a.ContainsKey("name") && (a["name"].ToString() ?? "").Trim() != "")
                             {
@@ -1933,16 +1945,17 @@ public static class RequestHandler
                             }
                             if (a.ContainsKey("roles"))
                             {
-                                bool setroles = true;
                                 var roles = ((JObject)a["roles"]).ToObject<Dictionary<string, GroupRole>>() ?? gp.roles;
-                                foreach (var member in gp.members.Values)
+                                
+                                if (gp.validateNewRoles(roles))
                                 {
-                                    if (!roles.ContainsKey(member.role))
-                                    {
-                                        setroles = false;
-                                    }
+                                    gp.roles = roles;
+                                    gp.notifyEdit(Group.EditType.WithRoles);
                                 }
-                                if (setroles) gp.roles = roles;
+                            }
+                            else
+                            {
+                                gp.notifyEdit(Group.EditType.Basic);
                             }
                             res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             gp.Save();
@@ -1995,7 +2008,7 @@ public static class RequestHandler
                     Group? gp = await Group.Get(a["groupid"]);
                     if (gp != null)
                     {
-                        if (gp.CanDo(uid, Group.groupAction.EditUser, a["userid"]))
+                        if (gp.CanDo(uid, Group.GroupAction.EditUser, a["userid"]))
                         {
                             if (gp.members.ContainsKey(a["userid"]))
                             {
@@ -2007,7 +2020,7 @@ public static class RequestHandler
                                     {
                                         if (crole.AdminOrder >= curole.AdminOrder)
                                         { //Dont allow to promote higher from current role.
-                                            gp.members[a["userid"]].role = a["role"];
+                                            gp.SetUserRole(a["userid"], a["role"]);
                                             res = JsonConvert.SerializeObject(new ServerResponse("done"));
                                             gp.Save();
                                         }
@@ -2210,17 +2223,17 @@ public static class RequestHandler
                         if (fedrequest.ContainsKey("groupid"))
                         {
                             string id = fedrequest["groupid"].Split("@")[0];
-                            Group? gp = await Group.Get(id);
-                            if (gp != null)
+                            Group? group = await Group.Get(id);
+                            if (group != null)
                             {
                                 bool showfullinfo = false;
-                                if (gp.isPublic)
+                                if (group.isPublic)
                                 {
                                     showfullinfo = true;
                                 }
                                 else
                                 {
-                                    foreach (string member in gp.members.Keys)
+                                    foreach (string member in group.members.Keys)
                                     {
                                         if (member.Contains("@"))
                                         {
@@ -2235,7 +2248,8 @@ public static class RequestHandler
                                 }
                                 if (showfullinfo)
                                 {
-                                    res = JsonConvert.SerializeObject(gp);
+                                    fed.cachedUpdates.AddHook(group);
+                                    res = JsonConvert.SerializeObject(group);
                                 }
                                 else
                                 {
@@ -2404,7 +2418,6 @@ public static class RequestHandler
                                 if (showfullinfo)
                                 {
                                     fed.cachedUpdates.AddHook(chat);
-                                    chat.connectedFederations.Add(fed);
                                     res = JsonConvert.SerializeObject(chat);
                                 }
                                 else
@@ -2576,6 +2589,90 @@ public static class RequestHandler
                                                 profile.Save();
                                             }
                                         }
+                                    }
+                                }else if (type == "group")
+                                {
+                                    string id = target.Split("@")[0];
+                                    Group? group = await Group.Get(id + "@" + fed.serverURL);
+                                    if (group == null)
+                                    {
+                                        group = await Group.Get(id);
+                                    }
+                                    if (group != null)
+                                    {
+                                        var updates = updatehook.Value;
+                                        foreach (var upd in updates)
+                                        {
+                                            if (upd.Value == null) continue;
+                                            if (upd.Key.StartsWith("USER|"))
+                                            {
+                                                // Get the user and fix id
+                                                string user = fed.FixUserID(upd.Key.Split("|")[1]);
+                                                string role = upd.Value.ToString() ?? "";
+
+                                                if (role == "")
+                                                {
+                                                    group.UnbanUser(user);
+                                                    await group.RemoveUser(user);
+                                                }
+                                                else if (role == "BANNED")
+                                                {
+                                                    await group.BanUser(user);
+                                                }
+                                                else
+                                                {
+                                                    if (group.members.ContainsKey(user))
+                                                    {
+                                                        group.SetUserRole(user, role);
+                                                    }
+                                                    else
+                                                    {
+                                                        await group.AddUser(user, role);
+                                                    }
+                                                }
+                                            }
+                                            else
+                                            {
+                                                var update = (JObject)upd.Value;
+                                                if (upd.Key == "edit")
+                                                {
+                                                    if (update.ContainsKey("name") && update.ContainsKey("info") && update.ContainsKey("picture") && update.ContainsKey("isPublic"))
+                                                    {
+                                                        string name = (update["name"] ?? "").ToString();
+                                                        string picture = (update["name"] ?? "").ToString();
+                                                        string info = (update["name"] ?? "").ToString();
+                                                        bool isPublic = (bool)(update["isPublic"] ?? false);
+
+                                                        if (group.name != name || group.picture != picture || group.info != info || group.isPublic != isPublic)
+                                                        {
+                                                            group.name = name;
+                                                            group.picture = picture;
+                                                            group.info = info;
+                                                            group.isPublic = isPublic;
+                                                            group.notifyEdit(Group.EditType.Basic);
+                                                        }
+                                                        if (update.ContainsKey("roles"))
+                                                        {
+                                                            var rolesCast = (JObject?)update["roles"];
+                                                            if (rolesCast != null)
+                                                            {
+                                                                var roles = rolesCast.ToObject<Dictionary<string, GroupRole>>();
+                                                                if (roles != null && group.validateNewRoles(roles))
+                                                                {
+                                                                    group.roles = roles;
+                                                                }
+
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        statuscode = 404;
+                                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOCHAT", "Chat not found."));
                                     }
                                 }
                             }

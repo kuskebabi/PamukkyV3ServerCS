@@ -13,6 +13,15 @@ class Group
     public static ConcurrentDictionary<string, Group> groupsCache = new();
     public static List<string> loadingGroups = new();
 
+    /// <summary>
+    /// List to hold federations that are connected/joined to this group.
+    /// </summary>
+    [JsonIgnore]
+    public List<Federation> connectedFederations = new();
+
+    [JsonIgnore]
+    public List<UpdateHook> updateHooks = new();
+
     public string name = "";
     public string picture = "";
     public string info = "";
@@ -195,9 +204,30 @@ class Group
             }
         }
 
+        foreach (UpdateHook hook in updateHooks) // Send the event.
+        {
+            if (CanDo(hook.target, GroupAction.Read))
+            {
+                hook["USER|" + userID] = role;
+            }
+        }
+
         return true; //Success!!
     }
 
+    public void SetUserRole(string userID, string role)
+    {
+        if (!roles.ContainsKey(role)) return;
+        members[userID].role = role;
+
+        foreach (UpdateHook hook in updateHooks) // Send the event.
+        {
+            if (CanDo(hook.target, GroupAction.Read))
+            {
+                hook["USER|" + userID] = role;
+            }
+        }
+    }
 
     /// <summary>
     /// Makes a user leave the group.
@@ -254,6 +284,14 @@ class Group
 
         members.Remove(userID, out _); //Goodbye..
 
+        foreach (UpdateHook hook in updateHooks) // Send the event.
+        {
+            if (CanDo(hook.target, GroupAction.Read))
+            {
+                hook["USER|" + userID] = ""; // Empty string means left
+            }
+        }
+
         return true; //Success!!
     }
 
@@ -270,6 +308,14 @@ class Group
             if (!bannedMembers.Contains(userID))
             {
                 bannedMembers.Add(userID);
+
+                foreach (UpdateHook hook in updateHooks) // Send the event.
+                {
+                    if (CanDo(hook.target, GroupAction.Read))
+                    {
+                        hook["USER|" + userID] = "BANNED"; // banned
+                    }
+                }
             }
             return true;
         }
@@ -282,13 +328,21 @@ class Group
     /// <param name="userID">ID of the user to unban</param>
     public void UnbanUser(string userID)
     {
-        bannedMembers.Remove(userID);
+        if (!bannedMembers.Remove(userID)) return;
+
+        foreach (UpdateHook hook in updateHooks) // Send the event.
+        {
+            if (CanDo(hook.target, GroupAction.Read))
+            {
+                hook["USER|" + userID] = ""; // "normally" leaved, no ban
+            }
+        }
     }
 
     #endregion
 
     #region Permissions
-    public enum groupAction
+    public enum GroupAction
     {
         Kick,
         Ban,
@@ -297,9 +351,16 @@ class Group
         Read
     }
 
-    public bool CanDo(string user, groupAction action, string? target = null)
+    public bool CanDo(string user, GroupAction action, string? target = null)
     {
-        if (action == groupAction.Read && isPublic) return true;
+        if (action == GroupAction.Read && isPublic) return true;
+
+        if (user.Contains(":") || user.Contains("."))
+        {
+            //Console.WriteLine("Fed Allow");
+            // If federations weren't still allowed no matter what, that would result in sync issues.
+            return true;
+        }
 
         GroupMember? u = null;
         foreach (var member in members)
@@ -314,24 +375,24 @@ class Group
         { // Doesn't exist? block
             return false;
         }
-        if (action == groupAction.Read) return true;
+        if (action == GroupAction.Read) return true;
 
         // Get the role
         GroupRole role = roles[u.role];
         //Check what the role can do depending on the request.
 
-        if (action == groupAction.EditGroup) return role.AllowEditingSettings;
+        if (action == GroupAction.EditGroup) return role.AllowEditingSettings;
 
         GroupRole? targetUserRole = GetUserRole(target ?? "");
         if (targetUserRole != null)
         {
-            if (action == groupAction.EditUser) return role.AllowEditingUsers && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
-            if (action == groupAction.Kick) return role.AllowKicking && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
-            if (action == groupAction.Ban) return role.AllowBanning && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
+            if (action == GroupAction.EditUser) return role.AllowEditingUsers && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
+            if (action == GroupAction.Kick) return role.AllowKicking && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
+            if (action == GroupAction.Ban) return role.AllowBanning && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
         }
         else
         {
-            if (action == groupAction.Ban) return role.AllowBanning;
+            if (action == GroupAction.Ban) return role.AllowBanning;
         }
 
         return false;
@@ -401,6 +462,24 @@ class Group
         {
             throw new NotImplementedException();
         }
+    }
+
+    public bool validateNewRoles(Dictionary<string, GroupRole> roles) {
+        foreach (var role in roles)
+        {
+            if (role.Key == "BANNED" || role.Key.Trim() == "")
+            {
+                return false;
+            }
+        }
+        foreach (var member in members.Values)
+        {
+            if (!roles.ContainsKey(member.role))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// <summary>
@@ -476,6 +555,51 @@ class Group
             bestMatch.role = ownerRole?.Key ?? "Owner";
         }
     }
+
+    public enum EditType
+    {
+        Basic,
+        WithRoles
+    }
+
+    /// <summary>
+    /// Notifies listeners for group info (or with roles) updates.
+    /// </summary>
+    /// <param name="type">Type of the update</param>
+    public void notifyEdit(EditType type)
+    {
+        object update;
+
+        if (type == EditType.Basic)
+        {
+            update = new GroupInfo()
+            {
+                name = name,
+                info = info,
+                picture = picture,
+                isPublic = isPublic
+            };
+        }
+        else
+        {
+            update = new GroupInfoWithRoles()
+            {
+                name = name,
+                info = info,
+                picture = picture,
+                isPublic = isPublic,
+                roles = roles
+            };
+        }
+
+        foreach (UpdateHook hook in updateHooks) // Send the event.
+        {
+            if (CanDo(hook.target, GroupAction.Read))
+            {
+                hook["edit"] = update;
+            }
+        }
+    }
 }
 
 /// <summary>
@@ -487,6 +611,18 @@ class GroupInfo
     public string picture = "";
     public string info = "";
     public bool isPublic = false;
+}
+
+/// <summary>
+/// Stripped Group for use in updater where roles is also changed
+/// </summary>
+class GroupInfoWithRoles
+{
+    public string name = "";
+    public string picture = "";
+    public string info = "";
+    public bool isPublic = false;
+    public Dictionary<string, GroupRole> roles = new();
 }
 
 /// <summary>
