@@ -47,6 +47,7 @@ public class MediaProcesser
         while (!Pamukky.exit)
         {
             if (mediaProcesserJobs.Count > 0)
+            {
                 try
                 {
                     string job = mediaProcesserJobs[0];
@@ -67,7 +68,12 @@ public class MediaProcesser
                 {
                     Console.WriteLine(e.ToString());
                 }
-            Thread.Sleep(100); //Sleep to save cpu
+                Thread.Sleep(100); //Sleep to save cpu
+            }
+            else
+            {
+                Thread.Sleep(500); //Sleep to save cpu
+            }
         }
     }
 

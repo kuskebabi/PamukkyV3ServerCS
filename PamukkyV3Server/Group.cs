@@ -151,22 +151,6 @@ class Group
             return false;
         }
 
-        if (groupID.Contains("@"))
-        {
-            string[] split = groupID.Split("@");
-            string id = split[0];
-            string server = split[1];
-            var connection = await Federation.Connect(server);
-            if (connection != null)
-            {
-                var g = await connection.JoinGroup(userID, id);
-                if (g == false)
-                {
-                    return false;
-                } //continue
-            }
-        }
-
         if (!userID.Contains("@"))
         {
             UserChatsList? clist = await UserChatsList.Get(userID); // Get chats list of user
@@ -239,22 +223,6 @@ class Group
         if (!members.ContainsKey(userID))
         { // To not mess stuff up
             return true;
-        }
-
-        if (groupID.Contains("@"))
-        {
-            string[] split = groupID.Split("@");
-            string id = split[0];
-            string server = split[1];
-            var connection = await Federation.Connect(server);
-            if (connection != null)
-            {
-                var g = await connection.LeaveGroup(userID, id);
-                if (g == false)
-                {
-                    return false;
-                } //continue
-            }
         }
 
         if (!userID.Contains("@"))
@@ -524,7 +492,7 @@ class Group
         }
 
         // Roles check
-        GroupMember? bestMatch = null;
+        string? bestMatch = null;
 
         foreach (var member in members.Values)
         {
@@ -540,19 +508,19 @@ class Group
             if (member.userID == creatorUID)
             {
                 // If the member is the original owner, give the role to them first.
-                bestMatch = member;
+                bestMatch = member.userID;
                 break;
             }
-            if (bestMatch == null || GetUserRole(member.userID)?.AdminOrder > GetUserRole(bestMatch.userID)?.AdminOrder)
+            if (bestMatch == null || GetUserRole(member.userID)?.AdminOrder > GetUserRole(bestMatch)?.AdminOrder)
             {
                 // Basically try to find the user with highest role.
-                bestMatch = member;
+                bestMatch = member.userID;
             }
         }
 
         if (bestMatch != null)
         {
-            bestMatch.role = ownerRole?.Key ?? "Owner";
+            SetUserRole(bestMatch, ownerRole?.Key ?? "Owner");
         }
     }
 

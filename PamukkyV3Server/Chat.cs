@@ -478,13 +478,13 @@ class Chat : OrderedDictionary<string, ChatMessage>
         {
             return updatesSince;
         }
-        else if (since == 0) // For getting since first one
-        {
-            since = updates.Keys.Min();
-        }
         else if (since == -1) // For getting last one
         {
             since = updates.Keys.Max() - 1;
+        }
+        else if (since < updates.Keys.Min()) // For getting since first one
+        {
+            since = updates.Keys.Min() - 1;
         }
 
         //var keysToRemove = new List<long>();
@@ -518,15 +518,15 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// </summary>
     /// <param name="maxWait">How long should it wait before giving up? each count adds 500ms more.</param>
     /// <returns>Dictionary that holds updates with their IDs</returns>
-    public async Task<Dictionary<long, Dictionary<string, object?>>> WaitForUpdates(int maxWait = 40)
+    public async Task<Dictionary<long, Dictionary<string, object?>>> WaitForUpdates(int maxWait = 40, long? since = 0)
     {
-        long lastID = newID;
+        long lastID = since ?? newID;
 
         int wait = maxWait;
 
         while (lastID == newID && wait > 0)
         {
-            await Task.Delay(500);
+            await Task.Delay(250);
             --wait;
         }
 

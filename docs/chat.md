@@ -160,7 +160,7 @@ Sets user as typing in the chat for 3 seconds.
 ```
 
 ## getupdates (Chat only mode)
-Gets(With `since` string) or waits for new updates. See "#Chat updater/hook" for format.
+Gets(With `since` string) or waits for new updates. See "#Chat updater/hook" for format. `since` can be previous update, anything too low like 0 for getting "all" history, -1 for getting last update, anything too high for nothing.
 ### Usage
 (As body)
 ```json

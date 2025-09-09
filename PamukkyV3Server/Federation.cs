@@ -90,8 +90,9 @@ class Federation
     /// Handles error status from request responses.
     /// </summary>
     /// <param name="status">Dictionary from a failled request response. Needs to have "code" key.</param>
-    void HandleStatus(Dictionary<string, object> status)
+    bool HandleStatus(Dictionary<string, object> status)
     {
+        if (!status.ContainsKey("code")) return true;
         switch (status["code"].ToString())
         {
             case "IDWRONG":
@@ -106,6 +107,7 @@ class Federation
                 _ = Reconnect(); // We don't need response of this.
                 break;
         }
+        return false;
     }
     /// <summary>
     /// Pushes chat updates to remote servers, acting like a client for them.
@@ -117,7 +119,6 @@ class Federation
         {
             UpdateHooks updates = await cachedUpdates.waitForUpdates();
 
-
             StringContent sc = new(JsonConvert.SerializeObject(new UpdateRecieveRequest() { serverurl = thisServerURL, id = id, updates = updates }));
             try
             {
@@ -126,9 +127,8 @@ class Federation
                 Console.WriteLine("push " + resbody);
                 var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
                 if (ret != null)
-                    if (ret.ContainsKey("status"))
+                    if (!HandleStatus(ret))
                     {
-                        HandleStatus(ret);
                         return;
                     }
             }
@@ -331,92 +331,6 @@ class Federation
             HandleException(e);
             Console.WriteLine(e.ToString());
             return null;
-        }
-    }
-
-    /// <summary>
-    /// Join to a group in the remote server
-    /// </summary>
-    /// <param name="userID">ID of user that will join.</param>
-    /// <param name="groupID">Group ID inside the remote.</param>
-    /// <returns>True if joined, false if couldn't</returns>
-    public async Task<bool> JoinGroup(string userID, string groupID)
-    {
-        if (!await Reconnect()) return false;
-
-        StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, groupid = groupID, userid = userID }));
-        try
-        {
-            var request = await GetHttpClient().PostAsync(new Uri(new Uri(serverURL), "federationjoingroup"), sc);
-            string resbody = await request.Content.ReadAsStringAsync();
-            //Console.WriteLine("joingroup " + resbody);
-            var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
-            if (ret == null) return false;
-            if (ret.ContainsKey("status"))
-            {
-                if (ret["status"].ToString() == "done")
-                {
-                    return true;
-                }
-                else
-                {
-                    HandleStatus(ret);
-                    return false;
-                }
-            }
-            else
-            {
-                return false;
-            }
-        }
-        catch (Exception e)
-        {
-            HandleException(e);
-            Console.WriteLine(e.ToString());
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Leaves the group from remote
-    /// </summary>
-    /// <param name="userID">User ID that will leave.</param>
-    /// <param name="groupID">Group ID in the remote.</param>
-    /// <returns></returns>
-    public async Task<bool> LeaveGroup(string userID, string groupID)
-    {
-        if (!await Reconnect()) return false;
-
-        StringContent sc = new(JsonConvert.SerializeObject(new { serverurl = thisServerURL, id = id, groupid = groupID, userid = userID }));
-        try
-        {
-            var res = await GetHttpClient().PostAsync(new Uri(new Uri(serverURL), "federationleavegroup"), sc);
-            string resbody = await res.Content.ReadAsStringAsync();
-            //Console.WriteLine("leavegroup " + resbody);
-            var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
-            if (ret == null) return false;
-            if (ret.ContainsKey("status"))
-            {
-                if (ret["status"].ToString() == "done")
-                {
-                    return true;
-                }
-                else
-                {
-                    HandleStatus(ret);
-                    return false;
-                }
-            }
-            else
-            {
-                return false;
-            }
-        }
-        catch (Exception e)
-        {
-            HandleException(e);
-            Console.WriteLine(e.ToString());
-            return false;
         }
     }
 
