@@ -83,6 +83,8 @@ class Federation
             connected = false;
             Console.WriteLine("Connection error!!!");
         }
+
+        Console.WriteLine(e.ToString());
     }
 
 
@@ -117,7 +119,7 @@ class Federation
         Console.WriteLine("pushtick");
         if (await Reconnect())
         {
-            UpdateHooks updates = await cachedUpdates.waitForUpdates();
+            UpdateHooks updates = await cachedUpdates.waitForUpdates(600, false);
 
             StringContent sc = new(JsonConvert.SerializeObject(new UpdateRecieveRequest() { serverurl = thisServerURL, id = id, updates = updates }));
             try
@@ -127,15 +129,17 @@ class Federation
                 Console.WriteLine("push " + resbody);
                 var ret = JsonConvert.DeserializeObject<Dictionary<string, object>>(resbody);
                 if (ret != null)
-                    if (!HandleStatus(ret))
-                    {
-                        return;
-                    }
+                    if (!HandleStatus(ret)) return;
+
+                // Clear previous updates when successful.
+                foreach (var hook in updates.Values)
+                {
+                    hook.Clear();
+                }
             }
             catch (Exception e)
             {
                 HandleException(e);
-                Console.WriteLine(e.ToString());
             }
         }
         PushUpdates();
@@ -329,7 +333,6 @@ class Federation
         catch (Exception e)
         {
             HandleException(e);
-            Console.WriteLine(e.ToString());
             return null;
         }
     }
@@ -372,7 +375,6 @@ class Federation
         catch (Exception e)
         {
             HandleException(e);
-            Console.WriteLine(e.ToString());
             return null;
         }
     }
@@ -410,7 +412,6 @@ class Federation
         catch (Exception e)
         {
             HandleException(e);
-            Console.WriteLine(e.ToString());
             return null;
         }
     }

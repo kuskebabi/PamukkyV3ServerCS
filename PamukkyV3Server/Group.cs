@@ -202,6 +202,7 @@ class Group
     public void SetUserRole(string userID, string role)
     {
         if (!roles.ContainsKey(role)) return;
+        if (members[userID].role == role) return;
         members[userID].role = role;
 
         foreach (UpdateHook hook in updateHooks) // Send the event.

@@ -29,7 +29,12 @@ All stuff here is optional.
     "httpPort": 4268,
     "httpsPort": 4280,
     "termsOfServiceFile": "/home/user/pamukkytos.txt",
-    "publicUrl": "https://...:4280/"
+    "publicUrl": "https://...:4280/",
+    "systemProfile": {
+        "name": "Pamuk but weird birb",
+        "picture": "",
+        "bio": "hhahi! This is a account. as expected!!!"
+    }
 }
 ```
 

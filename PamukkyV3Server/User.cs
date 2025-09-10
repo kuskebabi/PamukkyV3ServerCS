@@ -501,6 +501,9 @@ class UserProfile
     /// </summary>
     public void Save()
     {
+        if (userID == "0") return;
+        Directory.CreateDirectory("data/info/" + userID);
+
         foreach (var hook in updateHooks)
         {
             hook["profileUpdate"] = this;
@@ -513,6 +516,9 @@ class UserProfile
     /// </summary>
     public void SaveStatus()
     {
+        if (userID == "0") return;
+        Directory.CreateDirectory("data/info/" + userID);
+        
         if (lastStatus.lastOnline != lastOnlineTime && lastOnlineTime != null)
         {
             lastStatus.lastOnline = (DateTime)lastOnlineTime;

@@ -17,12 +17,14 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
     public string token = "";
 
     /// <summary>
-    /// Filters all the updates to only have ones with new updates and clears them.
+    /// Filters all the updates to only have ones with new updates and optionally clears them.
     /// </summary>
-    /// <param name="userToken">Token of the client</param>
-    /// <returns></returns>
-    public UpdateHooks GetNewUpdates()
+    /// <param name="clear">If true (default), it clears update stuff</param>
+    /// <returns>New updates</returns>
+    public UpdateHooks GetNewUpdates(bool clear = true)
     {
+        if (!clear) return this;
+
         UpdateHooks rtrn = new();
         foreach (var hook in this)
         {
@@ -42,19 +44,18 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
     /// <summary>
     /// Waits for new updates to happen or timeout and returns them.
     /// </summary>
-    /// <param name="userToken">Token of the client..</param>
     /// <param name="maxWait">How long should it wait before giving up? each count adds 100ms more. Default is a minute.</param>
+    /// <param name="clear">If true (default), it clears update stuff</param>
     /// <returns>All update hooks</returns>
-    public async Task<UpdateHooks> waitForUpdates(int maxWait = 600)
+    public async Task<UpdateHooks> waitForUpdates(int maxWait = 600, bool clear = true)
     {
-
         int wait = maxWait;
-        var updates = GetNewUpdates();
+        var updates = clear ? GetNewUpdates() : this;
 
         while (updates.Count == 0 && wait > 0)
         {
             await Task.Delay(100);
-            updates = GetNewUpdates();
+            if (clear) updates = GetNewUpdates();
             --wait;
         }
 

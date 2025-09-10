@@ -5,23 +5,48 @@ namespace PamukkyV3;
 
 internal class Pamukky
 {
-    //  ---- Constants for stuff ----
-    // Pamuk (user 0) profile, as string...
-    public const string pamukProfile = "{\"name\":\"Pamuk\",\"picture\":\"\",\"description\":\"Birb!!!\"}"; //Direct reply for clients, no need to make class and make it json as it's always the same.
-
     // ---- Caching ----
     public static ConcurrentDictionary<string, LoginCredential> loginCreds = new();
 
     // ---- Config ----
+    /// <summary>
+    /// Current config of the server
+    /// </summary>
     public static ServerConfig config = new();
-    public static string serverTOS = "No TOS given.";
+    /// <summary>
+    /// Current terms of service of server (full content)
+    /// </summary>
+    public static string serverTOS = "No TOS.";
 
+    /// <summary>
+    /// Server config structure
+    /// </summary>
     public class ServerConfig
     {
+        /// <summary>
+        /// Port for HTTP.
+        /// </summary>
         public int httpPort = 4268;
+        /// <summary>
+        /// Port for HTTPS.
+        /// </summary>
         public int? httpsPort = null;
+        /// <summary>
+        /// File path for server terms of service file.
+        /// </summary>
         public string? termsOfServiceFile = null;
+        /// <summary>
+        /// Public URL of the server that other servers/users will/should use
+        /// </summary>
         public string? publicUrl = null;
+        /// <summary>
+        /// System profile.
+        /// </summary>
+        public UserProfile systemProfile = new()
+        {
+            name = "Pamuk",
+            bio = "Hello! This is a service account."
+        };
     }
 
     /// <summary>
@@ -142,6 +167,8 @@ internal class Pamukky
             }
         }
 
+        // Load/Set config
+
         if (File.Exists(configPath))
         {
             config = JsonConvert.DeserializeObject<ServerConfig>(File.ReadAllText(configPath ?? "")) ?? new();
@@ -153,6 +180,9 @@ internal class Pamukky
                 serverTOS = File.ReadAllText(config.termsOfServiceFile);
             }
         }
+
+        config.systemProfile.userID = "0";
+        UserProfile.userProfileCache["0"] = config.systemProfile;
 
         //Create save folders
         Directory.CreateDirectory("data");

@@ -101,7 +101,6 @@ public static class RequestHandler
 
                             //Console.WriteLine(a.Password);
                             UserProfile up = new() { name = a.EMail.Split("@")[0].Split(".")[0] };
-                            Directory.CreateDirectory("data/info/" + uid);
                             string astr = JsonConvert.SerializeObject(a);
                             //File.WriteAllText("data/auth/" + token, astr);
                             Pamukky.loginCreds[token] = a;
@@ -274,22 +273,15 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("uid"))
             {
-                if (a["uid"] == "0")
+                UserProfile? up = await UserProfile.Get(a["uid"]);
+                if (up != null)
                 {
-                    res = Pamukky.pamukProfile;
+                    res = JsonConvert.SerializeObject(up);
                 }
                 else
                 {
-                    UserProfile? up = await UserProfile.Get(a["uid"]);
-                    if (up != null)
-                    {
-                        res = JsonConvert.SerializeObject(up);
-                    }
-                    else
-                    {
-                        statuscode = 404;
-                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
-                    }
+                    statuscode = 404;
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                 }
             }
             else
@@ -1469,43 +1461,37 @@ public static class RequestHandler
             if (a != null && a.ContainsKey("id"))
             {
                 string uid = await Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
-                if (a["id"] == "0")
+
+                UserProfile? up = await UserProfile.Get(a["id"]);
+                if (up != null)
                 {
-                    res = Pamukky.pamukProfile;
+                    res = JsonConvert.SerializeObject(up);
                 }
                 else
                 {
-                    UserProfile? up = await UserProfile.Get(a["id"]);
-                    if (up != null)
+                    Group? gp = await Group.Get(a["id"]);
+                    if (gp != null)
                     {
-                        res = JsonConvert.SerializeObject(up);
-                    }
-                    else
-                    {
-                        Group? gp = await Group.Get(a["id"]);
-                        if (gp != null)
+                        if (gp.CanDo(uid, Group.GroupAction.Read))
                         {
-                            if (gp.CanDo(uid, Group.GroupAction.Read))
+                            res = JsonConvert.SerializeObject(new GroupInfo()
                             {
-                                res = JsonConvert.SerializeObject(new GroupInfo()
-                                {
-                                    name = gp.name,
-                                    info = gp.info,
-                                    picture = gp.picture,
-                                    isPublic = gp.isPublic
-                                });
-                            }
-                            else
-                            {
-                                statuscode = 403;
-                                res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
-                            }
+                                name = gp.name,
+                                info = gp.info,
+                                picture = gp.picture,
+                                isPublic = gp.isPublic
+                            });
                         }
                         else
                         {
-                            statuscode = 404;
-                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
+                            statuscode = 403;
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
                         }
+                    }
+                    else
+                    {
+                        statuscode = 404;
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
                     }
                 }
             }
