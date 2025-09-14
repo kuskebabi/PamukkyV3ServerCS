@@ -100,17 +100,6 @@ class Group
                         }
                     }
                 }
-                connection.Connected += async (_, _) =>
-                {
-                    var g = await connection.GetGroup(id);
-                    if (g is Group)
-                    {
-                        var group = (Group)g;
-                        group.groupID = gid;
-                        groupsCache[gid] = group;
-                        group.Save(); // Save the group from the federation in case it goes offline after some time.
-                    }
-                };
             }
         }
         if (File.Exists("data/info/" + gid + "/info"))

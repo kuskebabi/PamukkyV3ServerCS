@@ -282,9 +282,14 @@ class Chat : OrderedDictionary<string, ChatMessage>
     public List<string> typingUsers = new();
 
     /// <summary>
-    /// Number to store what new update/message ID will be.
+    /// Sets if last id is "used" and new one is needed
     /// </summary>
-    public long newID = 0;
+    public bool lastIDUsed = true;
+
+    /// <summary>
+    /// Last ID that was used
+    /// </summary>
+    public long lastID = 0;
 
     /// <summary>
     /// Boolean to indicate if chat got any updates. Currently used for saving.
@@ -373,6 +378,20 @@ class Chat : OrderedDictionary<string, ChatMessage>
 
     #region Chat updates
     /// <summary>
+    /// Gets a new(or previous if lastIDUsed is true) ID. 
+    /// </summary>
+    /// <returns>A update id</returns>
+    long RequestNewID()
+    {
+        if (lastIDUsed)
+        {
+            lastID = DateTime.Now.Ticks;
+            lastIDUsed = false;
+        }
+
+        return lastID;
+    }
+    /// <summary>
     /// Adds a update to chat updates history
     /// </summary>
     /// <param name="update">A dictionary that is a update</param>
@@ -380,7 +399,10 @@ class Chat : OrderedDictionary<string, ChatMessage>
     void AddUpdate(Dictionary<string, object?> update)
     {
         wasUpdated = true;
-        if ((update["event"] ?? "").ToString() == "DELETED")
+        
+        string eventName = (update["event"] ?? "").ToString() ?? "";
+
+        if (eventName == "DELETED")
         {
             string msgid = (update["id"] ?? "").ToString() ?? "";
             int i = 0;
@@ -397,14 +419,16 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 }
             }
         }
-        /*if ((update["event"] ?? "").ToString() == "REACT")
+        else if (eventName == "REACTED")
         {
             string msgid = (update["id"] ?? "").ToString() ?? "";
+            string userid = (update["senderUID"] ?? "").ToString() ?? "";
+            string reaction = (update["reaction"] ?? "").ToString() ?? "";
             int i = 0;
             while (i < updates.Count)
             {
                 var oupdate = updates.ElementAt(i);
-                if ((oupdate.Value["id"] ?? "").ToString() == msgid && (oupdate.Value["event"] ?? "").ToString() == "REACT")
+                if ((oupdate.Value["id"] ?? "").ToString() == msgid && (oupdate.Value["event"] ?? "").ToString() == "UNREACTED" && (oupdate.Value["senderUID"] ?? "").ToString() == userid && (oupdate.Value["reaction"] ?? "").ToString() == reaction)
                 {
                     updates.Remove(oupdate.Key, out _);
                 }
@@ -413,8 +437,27 @@ class Chat : OrderedDictionary<string, ChatMessage>
                     ++i;
                 }
             }
-        }*/
-        if ((update["event"] ?? "").ToString() == "UNPINNED")
+        }
+        else if (eventName == "UNREACTED")
+        {
+            string msgid = (update["id"] ?? "").ToString() ?? "";
+            string userid = (update["senderUID"] ?? "").ToString() ?? "";
+            string reaction = (update["reaction"] ?? "").ToString() ?? "";
+            int i = 0;
+            while (i < updates.Count)
+            {
+                var oupdate = updates.ElementAt(i);
+                if ((oupdate.Value["id"] ?? "").ToString() == msgid && (oupdate.Value["event"] ?? "").ToString() == "REACTED" && (oupdate.Value["senderUID"] ?? "").ToString() == userid && (oupdate.Value["reaction"] ?? "").ToString() == reaction)
+                {
+                    updates.Remove(oupdate.Key, out _);
+                }
+                else
+                {
+                    ++i;
+                }
+            }
+        }
+        else if (eventName == "UNPINNED")
         {
             string msgid = (update["id"] ?? "").ToString() ?? "";
             int i = 0;
@@ -431,7 +474,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 }
             }
         }
-        if ((update["event"] ?? "").ToString() == "PINNED")
+        else if (eventName == "PINNED")
         {
             string msgid = (update["id"] ?? "").ToString() ?? "";
             int i = 0;
@@ -448,15 +491,18 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 }
             }
         }
-        ++newID;
-        updates[newID] = update;
+
+        long id = RequestNewID();
+        lastIDUsed = true;
+
+        updates[id] = update;
 
         var formattedUpdate = FormatUpdate(update);
         foreach (UpdateHook hook in updateHooks)
         {
             if (CanDo(hook.target, ChatAction.Read))
             {
-                hook[newID.ToString()] = formattedUpdate;
+                hook[id.ToString()] = formattedUpdate;
             }
         }
     }
@@ -520,11 +566,11 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <returns>Dictionary that holds updates with their IDs</returns>
     public async Task<Dictionary<long, Dictionary<string, object?>>> WaitForUpdates(int maxWait = 40, long? since = 0)
     {
-        long lastID = since ?? newID;
+        long lastID = since ?? RequestNewID();
 
         int wait = maxWait;
 
-        while (lastID == newID && wait > 0)
+        while (lastID == RequestNewID() && wait > 0)
         {
             await Task.Delay(250);
             --wait;
@@ -777,14 +823,14 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <param name="remoteMessageID">Message ID that recieved from remote federation, should be null(default) if not recieved.</param>
     public async void SendMessage(ChatMessage message, bool notify = true, string? remoteMessageID = null)
     {
-        newID++;
-        string id = newID.ToString();
+        string id = RequestNewID().ToString();
         if (remoteMessageID != null)
         {
             id = remoteMessageID;
             if (ContainsKey(id)) return;
         }
         Add(id, message);
+
         Dictionary<string, object?> update = new();
         update["event"] = "NEWMESSAGE";
         update["id"] = id;
@@ -1097,7 +1143,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
 
         if (loadedChat != null)
         {
-            if (File.Exists("data/chat/" + chatID + "/updates"))
+            if (File.Exists("data/chat/" + chatID + "/updates")) //get update history
             {
                 try
                 {
@@ -1106,9 +1152,10 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 }
                 catch { } //Ignore...
             }
+
             loadedChat.chatID = chatID;
             loadedChat.isGroup = !chatID.Contains("-");
-            loadedChat.newID = DateTime.Now.Ticks;
+
             if (loadedChat.isGroup)
             {
                 // Load the real group
