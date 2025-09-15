@@ -16,6 +16,7 @@ class ChatMessage
     public string? forwardedFromUID;
     public MessageReactions reactions = new();
     public bool isPinned = false;
+    public List<string> mentionUIDs = new();
 
     #region Backwards compatibility
     public string sender
@@ -220,7 +221,6 @@ class ChatMessageFormatted : ChatMessage
     public Dictionary<string, object?> ToDictionary()
     {
         Dictionary<string, object?> d = new();
-        //d["senderuser"] = senderuser;
         d["replyMessageContent"] = replyMessageContent;
         d["replyMessageSenderUID"] = replyMessageSenderUID;
         d["replyMessageID"] = replyMessageID;
@@ -235,7 +235,6 @@ class ChatMessageFormatted : ChatMessage
         d["reactions"] = reactions;
         d["forwardedFromUID"] = forwardedFromUID;
         d["isPinned"] = isPinned;
-        //d["forwardedname"] = forwardedname;
         return d;
     }
 }
@@ -245,6 +244,8 @@ class ChatMessageFormatted : ChatMessage
 /// </summary>
 class Chat : OrderedDictionary<string, ChatMessage>
 {
+    public static string[] mentionStrings = {"room", "chat", "everyone", "all"};
+
     /// <summary>
     /// Dictionary to hold chats.
     /// </summary>
@@ -849,7 +850,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                 if (message.senderUID != member)
                 {
                     UserConfig? uc = await UserConfig.Get(member);
-                    if (uc != null && uc.CanSendNotification(chatID, DoesContainMention(message, member)))
+                    if (uc != null && uc.CanSendNotification(chatID, message.mentionUIDs.Contains(member) || message.mentionUIDs.Contains("[CHAT]")))
                     {
                         Notifications.Get(member).AddNotification(notification);
                     }
@@ -973,15 +974,56 @@ class Chat : OrderedDictionary<string, ChatMessage>
 
     #region Helpers
     /// <summary>
-    /// Helper function to dedect if message has a mention to the target user.
+    /// Helper function to dedect if string has a mention tag to mention everyone.
+    /// </summary>
+    /// <param name="str">Message string to detect</param>
+    /// <returns>List of user IDs or </returns>
+    public bool DoesContainAllMention(string str)
+    {
+        // @chat, @everyone and @room like stuff that pings everyone.
+        foreach (string mention in mentionStrings)
+        {
+            if (str.Contains("@" + mention))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    } 
+    /// <summary>
+    /// Helper function to detect if message has a mention to any user in the chat.
+    /// </summary>
+    /// <param name="msg">ChatMessage to dedect.</param>
+    /// <returns>List of user IDs or </returns>
+    public List<string> GetMessageMentions(ChatMessage msg)
+    {
+        // @chat, @everyone and @room like stuff that pings everyone.
+        if (DoesContainAllMention(msg.content)) return new() { "[CHAT]" };
+
+        List<string> mentions = new();
+
+        foreach (var member in group.members)
+        {
+            if (DoesMessageContainUserMention(msg, member.Key))
+            {
+                mentions.Add(member.Key);
+            }
+        }
+
+        return mentions;
+    } 
+    /// <summary>
+    /// Helper function to detect if message has a mention to the target user.
     /// </summary>
     /// <param name="msg">ChatMessage to dedect.</param>
     /// <param name="targetUserID">ID of the target user to search for mentions(@) in the message.</param>
     /// <returns></returns>
-    public bool DoesContainMention(ChatMessage msg, string targetUserID)
+    public bool DoesMessageContainUserMention(ChatMessage msg, string targetUserID)
     {
         // @chat, @everyone and @room like stuff that pings everyone.
-        if (msg.content.Contains("@chat") || msg.content.Contains("@everyone") || msg.content.Contains("@room")) return true;
+        if (DoesContainAllMention(msg.content)) return true;
+
         // A actual mention of user
         if (msg.content.Contains("@" + targetUserID)) return true;
         // Reply to user's message. if replied.

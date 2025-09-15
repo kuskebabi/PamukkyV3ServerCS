@@ -81,6 +81,7 @@ Sends a message.
     "chatid": "(ID of the chat)",
     "content": "(Content of the message)",
     // Optional
+    "mentionuids": ["(User ID or '[CHAT]')", ...], // Can be also a string if it's "[CHAT]" mention, which mentions everyone
     "replymessageid": "(ID of the message to reply)",
     "files": ["(File url)", ...]
 }
@@ -198,6 +199,7 @@ Gets or waits for new typing updates. Different than format in "#Chat updater/ho
     "replyMessageContent?":"(Content of the replied message)",
     "replyMessageSenderUID?":"(Sender user ID of the replied message)",
     "replyMessageID?":"(ID of the message)",
+    "mentionUIDs?": ["User ID", "[CHAT]", ...],
     "senderUID":"(User ID of the sender)",
     "content":"(Content of the message)",
     "sendTime":"(Send time of the message)",

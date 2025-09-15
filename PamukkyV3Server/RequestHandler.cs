@@ -803,6 +803,21 @@ public static class RequestHandler
                                     replyMessageID = a.ContainsKey("replymessageid") ? a["replymessageid"].ToString() : null,
                                     files = files
                                 };
+
+                                if (a.ContainsKey("mentionuids") && a["mentionuids"] is JArray)
+                                {
+                                    List<string>? mentionsList = ((JArray)a["mentionuids"]).ToObject<List<string>>();
+                                    if (mentionsList != null) msg.mentionUIDs = mentionsList;
+                                }
+                                else if (a.ContainsKey("mentionuids") && a["mentionuids"].ToString() == "[CHAT]")
+                                {
+                                    msg.mentionUIDs = new() {"[CHAT]"};
+                                }
+                                else
+                                {
+                                    msg.mentionUIDs = chat.GetMessageMentions(msg);
+                                }
+
                                 chat.SendMessage(msg);
                                 var userstatus = UserStatus.Get(uid);
                                 if (userstatus != null)
@@ -1025,7 +1040,6 @@ public static class RequestHandler
                                                 files = chat[msgid].files
                                             };
                                             uchat.SendMessage(message, false);
-
                                         }
                                     }
                                 }
