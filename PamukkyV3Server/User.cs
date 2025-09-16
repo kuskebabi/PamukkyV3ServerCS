@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.Serialization;
 using Newtonsoft.Json;
 
 namespace PamukkyV3;
@@ -68,11 +69,83 @@ class MessageNotification
 /// <summary>
 /// Login credentials
 /// </summary>
-class LoginCredential
+class UserLoginRequest
+{
+    public string EMail = "";
+    public string Password = "";
+}
+
+/// <summary>
+/// Class that handles user sessions
+/// </summary>
+class UserSession
+{
+    public static ConcurrentDictionary<string, UserSession> UserSessions = new();
+
+    public string userID = "";
+    public string token = "";
+
+    /// <summary>
+    /// Creates a user login session with a random token and id of the user.
+    /// </summary>
+    /// <param name="userID"></param>
+    /// <returns></returns>
+    public static UserSession CreateSession(string userID)
+    {
+        //Console.WriteLine("Logging in...");
+        string token = "";
+        do
+        {
+            //Console.WriteLine("Generating token...");
+            token = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
+        }
+        while (UserSessions.ContainsKey(token));
+
+        var session = new UserSession() { userID = userID, token = token };
+
+        //Console.WriteLine("Generated token");
+        UserSessions[token] = session;
+
+        return session;
+    }
+
+    /// <summary>
+    /// Makes session invalid
+    /// </summary>
+    public void LogOut()
+    {
+        UserSessions.Remove(token, out _);
+    }
+}
+
+/// <summary>
+/// Class that handles login of the user
+/// </summary>
+class UserLogin
 {
     public string EMail = "";
     public string Password = "";
     public string userID = "";
+
+    public static async Task<UserLogin?> Get(string email)
+    {
+        if (!File.Exists("data/auth/" + email)) return null;
+
+        return JsonConvert.DeserializeObject<UserLogin>(await File.ReadAllTextAsync("data/auth/" + email));
+    }
+
+    public static async Task<UserSession?> Login(UserLoginRequest request)
+    {
+        request.EMail = request.EMail.Trim();
+
+        UserLogin? credentials = await Get(request.EMail);
+        if (credentials == null) return null;
+
+        request.Password = Helpers.HashPassword(request.Password, credentials.userID);
+        if (credentials.Password != request.Password || credentials.EMail != request.EMail) return null;
+
+        return UserSession.CreateSession(credentials.userID);
+    }
 }
 
 /// <summary>

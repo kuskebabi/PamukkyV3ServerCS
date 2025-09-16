@@ -14,7 +14,7 @@ This API allows users to login.
 ```json
 {
     "token": "(Token of the session)",
-    "uid": "(ID of the user)"
+    "userID": "(ID of the user)"
 } 
 ```
 ## signup
@@ -32,7 +32,7 @@ This API allows users to create accounts.
 ```json
 {
     "token": "(Token of the session)",
-    "uid": "(ID of the user)"
+    "userID": "(ID of the user)"
 } 
 ```
 ## changepassword
@@ -42,6 +42,7 @@ This API allows users to change their password. This makes other sessions log ou
 ```json
 {
     "token": "(Token of the session)",
+    "email": "(E-Mail of the user)",
     "oldpassword": "(Current password of the user)",
     "password": "(New password of the user)"
 }

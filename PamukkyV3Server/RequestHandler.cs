@@ -27,23 +27,6 @@ public static class RequestHandler
     }
 
     /// <summary>
-    /// For both signup and login calls.
-    /// </summary>
-    class LoginResponse
-    {
-        public string token;
-        public string uid;
-        //public userProfile userinfo;
-
-        public LoginResponse(string utoken, string id)
-        {
-            token = utoken;
-            uid = id;
-            //userinfo = profile;
-        }
-    }
-
-    /// <summary>
     /// Return for doAction function.
     /// </summary>
     public class ActionReturn
@@ -68,7 +51,7 @@ public static class RequestHandler
         }
         else if (action == "signup")
         {
-            var a = JsonConvert.DeserializeObject<LoginCredential>(body);
+            var a = JsonConvert.DeserializeObject<UserLoginRequest>(body);
             if (a != null)
             {
                 a.EMail = a.EMail.Trim();
@@ -87,25 +70,18 @@ public static class RequestHandler
                             }
                             while (Directory.Exists("data/info/" + uid));
 
-                            a.Password = Helpers.HashPassword(a.Password, uid);
-
-                            string token = "";
-                            do
+                            UserLogin loginCredentials = new()
                             {
-                                token = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
-                            }
-                            while (Pamukky.loginCreds.ContainsKey(token));
+                                EMail = a.EMail,
+                                Password = Helpers.HashPassword(a.Password, uid),
+                                userID = uid
+                            };
 
-                            a.userID = uid;
-                            //a.token = token;
+                            File.WriteAllText("data/auth/" + a.EMail, JsonConvert.SerializeObject(loginCredentials));
 
-                            //Console.WriteLine(a.Password);
                             UserProfile up = new() { name = a.EMail.Split("@")[0].Split(".")[0] };
-                            string astr = JsonConvert.SerializeObject(a);
-                            //File.WriteAllText("data/auth/" + token, astr);
-                            Pamukky.loginCreds[token] = a;
-                            File.WriteAllText("data/auth/" + a.EMail, astr);
                             UserProfile.Create(uid, up);
+
                             UserChatsList? chats = await UserChatsList.Get(uid); //get new user's chats list
                             if (chats != null)
                             {
@@ -122,8 +98,10 @@ public static class RequestHandler
                             {
                                 Console.WriteLine("Signup chatslist was null!!!"); //log if weirdo
                             }
-                            //Done
-                            res = JsonConvert.SerializeObject(new LoginResponse(token, uid));
+                            //Done, now login
+                            var session = UserSession.CreateSession(uid);
+
+                            res = JsonConvert.SerializeObject(session);
                         }
                         else
                         {
@@ -152,50 +130,20 @@ public static class RequestHandler
         }
         else if (action == "login")
         {
-            var a = JsonConvert.DeserializeObject<LoginCredential>(body);
-            if (a != null)
+            var request = JsonConvert.DeserializeObject<UserLoginRequest>(body);
+            if (request != null)
             {
-                a.EMail = a.EMail.Trim();
-                if (File.Exists("data/auth/" + a.EMail))
+                var session = await UserLogin.Login(request);
+
+                if (session != null)
                 {
-                    LoginCredential? lc = JsonConvert.DeserializeObject<LoginCredential>(await File.ReadAllTextAsync("data/auth/" + a.EMail));
-                    if (lc != null)
-                    {
-                        string uid = lc.userID;
-                        a.Password = Helpers.HashPassword(a.Password, uid);
-                        if (lc.Password == a.Password && lc.EMail == a.EMail)
-                        {
-                            //Console.WriteLine("Logging in...");
-                            string token = "";
-                            do
-                            {
-                                //Console.WriteLine("Generating token...");
-                                token = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
-                            }
-                            while (Pamukky.loginCreds.ContainsKey(token));
-                            //Console.WriteLine("Generated token");
-                            Pamukky.loginCreds[token] = lc;
-                            //Console.WriteLine("Respond");
-                            res = JsonConvert.SerializeObject(new LoginResponse(token, uid));
-                        }
-                        else
-                        {
-                            statuscode = 403;
-                            res = JsonConvert.SerializeObject(new ServerResponse("error", "WRONGLOGIN", "Incorrect login"));
-                        }
-                    }
-                    else
-                    {
-                        statuscode = 411;
-                        res = JsonConvert.SerializeObject(new ServerResponse("error"));
-                    }
+                    res = JsonConvert.SerializeObject(session);
                 }
                 else
                 {
-                    statuscode = 404;
-                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
+                    statuscode = 403;
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "WRONGLOGIN", "Incorrect login"));
                 }
-
             }
             else
             {
@@ -206,34 +154,34 @@ public static class RequestHandler
         else if (action == "changepassword")
         {
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
-            if (a != null && a.ContainsKey("token") && a.ContainsKey("password") && a.ContainsKey("oldpassword"))
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("password") && a.ContainsKey("oldpassword") && a.ContainsKey("email"))
             {
                 if (a["password"].Trim().Length >= 6)
                 {
-                    LoginCredential? lc = await Pamukky.GetLoginCred(a["token"]);
+                    UserLogin? lc = await UserLogin.Get(a["email"]);
                     if (lc != null)
                     {
-                        if (lc.Password == Helpers.HashPassword(a["oldpassword"], lc.userID))
+                        if (UserSession.UserSessions.ContainsKey(a["token"]) && UserSession.UserSessions[a["token"]].userID == lc.userID)
                         {
-                            /*string token = "";
-                                *                   do
-                                *                   {
-                                *                       token =  Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=","").Replace("+","").Replace("/","");
-                        }
-                        while (Pamukky.loginCreds.ContainsKey(token));*/
-                            //File.Delete("data/auth/" + lc.token);
-                            //lc.token = token;
-                            lc.Password = Helpers.HashPassword(a["password"].Trim(), lc.userID);
-                            //File.WriteAllText("data/auth/" + token, astr);
-                            File.WriteAllText("data/auth/" + lc.EMail, JsonConvert.SerializeObject(lc));
-                            //Find other logins
-                            var tokens = Pamukky.loginCreds.Where(lco => lco.Value.userID == lc.userID && lc != lco.Value);
-                            foreach (var token in tokens)
+                            var session = UserSession.UserSessions[a["token"]];
+                            if (lc.Password == Helpers.HashPassword(a["oldpassword"], lc.userID))
                             {
-                                //remove the logins.
-                                Pamukky.loginCreds.Remove(token.Key, out _);
+                                lc.Password = Helpers.HashPassword(a["password"].Trim(), lc.userID);
+                                File.WriteAllText("data/auth/" + lc.EMail, JsonConvert.SerializeObject(lc));
+                                //Find other logins
+                                var tokens = UserSession.UserSessions.Where(osession => osession.Value.userID == lc.userID && session != osession.Value);
+                                foreach (var token in tokens)
+                                {
+                                    //remove the logins.
+                                    UserSession.UserSessions.Remove(token.Key, out _);
+                                }
+                                res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             }
-                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
+                        }
+                        else
+                        {
+                            statuscode = 404;
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
                         }
                     }
                     else
@@ -259,7 +207,11 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token"))
             {
-                Pamukky.loginCreds.Remove(a["token"], out _);
+                if (UserSession.UserSessions.ContainsKey(a["token"]))
+                {
+                    UserSession.UserSessions[a["token"]].LogOut();
+                }
+
                 res = JsonConvert.SerializeObject(new ServerResponse("done"));
             }
             else
@@ -616,15 +568,15 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("email"))
             {
-                string? uidu = await Pamukky.GetUIDFromToken(a["token"]);
-                string? uidb = await Pamukky.GetUIDFromToken(a["email"], false);
-                if (uidu != null && uidb != null)
+                string? uida = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uidb = (await UserLogin.Get(a["email"]))?.userID;
+                if (uida != null && uidb != null)
                 {
                     UserChatsList? chatsb = await UserChatsList.Get(uidb);
-                    UserChatsList? chatsu = await UserChatsList.Get(uidu);
+                    UserChatsList? chatsu = await UserChatsList.Get(uida);
                     if (chatsu != null && chatsb != null)
                     {
-                        string chatid = uidu + "-" + uidb;
+                        string chatid = uida + "-" + uidb;
                         ChatItem u = new()
                         {
                             user = uidb,
@@ -633,7 +585,7 @@ public static class RequestHandler
                         };
                         ChatItem b = new()
                         {
-                            user = uidu,
+                            user = uida,
                             type = "user",
                             chatid = chatid
                         };

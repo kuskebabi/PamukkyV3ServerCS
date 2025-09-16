@@ -5,9 +5,6 @@ namespace PamukkyV3;
 
 internal class Pamukky
 {
-    // ---- Caching ----
-    public static ConcurrentDictionary<string, LoginCredential> loginCreds = new();
-
     // ---- Config ----
     /// <summary>
     /// Current config of the server
@@ -50,51 +47,14 @@ internal class Pamukky
     }
 
     /// <summary>
-    /// Gets login credentials from token or if preventBypass is false from email too.
-    /// </summary>
-    /// <param name="token">Token of the login or email (if preventBypass is true)</param>
-    /// <param name="preventBypass"></param>
-    /// <returns>loginCred if successful, null if "bypassed" or failled.</returns>
-    public static async Task<LoginCredential?> GetLoginCred(string token, bool preventBypass = true)
-    {
-        //!preventbypass is when you wanna use the token to get other info
-        if (token.Contains("@") && preventBypass)
-        { //bypassing
-            return null;
-        }
-        if (loginCreds.ContainsKey(token))
-        {
-            return loginCreds[token];
-        }
-        else
-        {
-            if (File.Exists("data/auth/" + token))
-            {
-                LoginCredential? up = JsonConvert.DeserializeObject<LoginCredential>(await File.ReadAllTextAsync("data/auth/" + token));
-                if (up != null)
-                {
-                    loginCreds[token] = up;
-                    return up;
-                }
-            }
-        }
-        return null;
-    }
-
-    /// <summary>
     /// Gets user ID from token.
     /// </summary>
     /// <param name="token"></param>
-    /// <param name="preventBypass"></param>
     /// <returns></returns>
-    public static async Task<string?> GetUIDFromToken(string token, bool preventBypass = true)
+    public static async Task<string?> GetUIDFromToken(string token)
     {
-        LoginCredential? cred = await GetLoginCred(token, preventBypass);
-        if (cred == null)
-        {
-            return null;
-        }
-        return cred.userID;
+        if (!UserSession.UserSessions.ContainsKey(token)) return null;
+        return UserSession.UserSessions[token].userID;
     }
 
     public static void SaveData()
