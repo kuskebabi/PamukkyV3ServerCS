@@ -66,7 +66,7 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
     /// Adds a update hook for a client
     /// </summary>
     /// <param name="target">Can be Chat, UserProfile, Group and UserChatsList.</param>
-    public async void AddHook(object target)
+    public void AddHook(object target)
     {
         string hookName;
 
@@ -103,7 +103,7 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
         }
         else
         {
-            ttarget = await Pamukky.GetUIDFromToken(token) ?? "";
+            ttarget = Pamukky.GetUIDFromToken(token) ?? "";
         }
         UpdateHook hook = new() {target = ttarget};
         this[hookName] = hook;

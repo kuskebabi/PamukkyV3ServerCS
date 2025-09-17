@@ -51,7 +51,7 @@ public class HTTPHandler
             {
                 if (context.Request.Headers["token"] != null)
                 {
-                    string? uid = await Pamukky.GetUIDFromToken(context.Request.Headers["token"] ?? "");
+                    string? uid = Pamukky.GetUIDFromToken(context.Request.Headers["token"]);
                     if (uid != null)
                     {
                         if (context.Request.Headers["content-length"] != null)

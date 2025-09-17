@@ -109,6 +109,12 @@ class UserSession
         return session;
     }
 
+    public static UserSession? GetSession(string token)
+    {
+        if (!UserSessions.ContainsKey(token)) return null;
+        return UserSessions[token];
+    }
+
     /// <summary>
     /// Makes session invalid
     /// </summary>

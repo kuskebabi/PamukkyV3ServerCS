@@ -161,9 +161,9 @@ public static class RequestHandler
                     UserLogin? lc = await UserLogin.Get(a["email"]);
                     if (lc != null)
                     {
-                        if (UserSession.UserSessions.ContainsKey(a["token"]) && UserSession.UserSessions[a["token"]].userID == lc.userID)
+                        var session = UserSession.GetSession(a["token"]);
+                        if (session != null && session.userID == lc.userID)
                         {
-                            var session = UserSession.UserSessions[a["token"]];
                             if (lc.Password == Helpers.HashPassword(a["oldpassword"], lc.userID))
                             {
                                 lc.Password = Helpers.HashPassword(a["password"].Trim(), lc.userID);
@@ -176,6 +176,11 @@ public static class RequestHandler
                                     UserSession.UserSessions.Remove(token.Key, out _);
                                 }
                                 res = JsonConvert.SerializeObject(new ServerResponse("done"));
+                            }
+                            else
+                            {
+                                statuscode = 403;
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "NOPASS", "Old password is wrong."));
                             }
                         }
                         else
@@ -207,9 +212,10 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token"))
             {
-                if (UserSession.UserSessions.ContainsKey(a["token"]))
+                var session = UserSession.GetSession(a["token"]);
+                if (session != null)
                 {
-                    UserSession.UserSessions[a["token"]].LogOut();
+                    session.LogOut();
                 }
 
                 res = JsonConvert.SerializeObject(new ServerResponse("done"));
@@ -269,7 +275,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     UserProfile? user = await UserProfile.Get(uid);
@@ -300,7 +306,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     UserProfile? profile = await UserProfile.Get(uid);
@@ -346,7 +352,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     List<ChatItem>? chats = await UserChatsList.Get(uid);
@@ -377,7 +383,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     //Console.WriteLine(JsonConvert.SerializeObject(notifications));
@@ -467,7 +473,7 @@ public static class RequestHandler
                         switch (hid)
                         {
                             case "chatslist":
-                                UserChatsList? chatsList = await UserChatsList.Get(await Pamukky.GetUIDFromToken(token) ?? "");
+                                UserChatsList? chatsList = await UserChatsList.Get(Pamukky.GetUIDFromToken(token) ?? "");
                                 if (chatsList != null)
                                 {
                                     updhooks.AddHook(chatsList);
@@ -493,7 +499,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     UserConfig? userconfig = await UserConfig.Get(uid);
@@ -524,7 +530,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("state"))
             {
-                string? uid = await Pamukky.GetUIDFromToken((a["token"] ?? "").ToString() ?? "");
+                string? uid = Pamukky.GetUIDFromToken((a["token"]));
                 if (uid != null)
                 {
                     UserConfig? userconfig = await UserConfig.Get(uid);
@@ -568,7 +574,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("email"))
             {
-                string? uida = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uida = Pamukky.GetUIDFromToken(a["token"]);
                 string? uidb = (await UserLogin.Get(a["email"]))?.userID;
                 if (uida != null && uidb != null)
                 {
@@ -618,7 +624,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Chat? chat = await Chat.GetChat(a["chatid"]);
@@ -659,7 +665,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("prefix"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Chat? chat = await Chat.GetChat(a["chatid"]);
@@ -698,7 +704,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Chat? chat = await Chat.GetChat(a["chatid"]);
@@ -740,7 +746,7 @@ public static class RequestHandler
                 List<string>? files = a.ContainsKey("files") && (a["files"] is JArray) ? ((JArray)a["files"]).ToObject<List<string>>() : null;
                 if (a.ContainsKey("token") && a.ContainsKey("chatid") && ((a.ContainsKey("content") && (a["content"].ToString() ?? "") != "") || (files != null && files.Count > 0)))
                 {
-                    string? uid = await Pamukky.GetUIDFromToken(a["token"].ToString() ?? "");
+                    string? uid = Pamukky.GetUIDFromToken(a["token"].ToString());
                     if (uid != null)
                     {
                         Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
@@ -813,7 +819,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("messageids"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"].ToString() ?? "");
+                string? uid = Pamukky.GetUIDFromToken(a["token"].ToString());
                 if (uid != null)
                 {
                     Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
@@ -863,7 +869,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("messageids"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"].ToString() ?? "");
+                string? uid = Pamukky.GetUIDFromToken(a["token"].ToString());
                 if (uid != null)
                 {
                     Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
@@ -920,7 +926,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("messageid") && a.ContainsKey("reaction") && (a["reaction"].ToString() ?? "") != "")
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"].ToString() ?? "");
+                string? uid = Pamukky.GetUIDFromToken(a["token"].ToString());
                 if (uid != null)
                 {
                     Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
@@ -966,7 +972,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("messageids"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"].ToString() ?? "");
+                string? uid = Pamukky.GetUIDFromToken(a["token"].ToString());
                 if (uid != null)
                 {
                     Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
@@ -1032,7 +1038,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("messageids") && a.ContainsKey("chatidstosend"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"].ToString() ?? "");
+                string? uid = Pamukky.GetUIDFromToken(a["token"].ToString());
                 if (uid != null)
                 {
                     Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
@@ -1106,7 +1112,7 @@ public static class RequestHandler
             {
                 if (a.ContainsKey("id")) // Chat based updaters
                 {
-                    string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                    string? uid = Pamukky.GetUIDFromToken(a["token"]);
                     if (uid != null)
                     {
                         Chat? chat = await Chat.GetChat(a["id"]);
@@ -1171,7 +1177,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Chat? chat = await Chat.GetChat(a["chatid"]);
@@ -1220,7 +1226,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Chat? chat = await Chat.GetChat(a["chatid"]);
@@ -1267,7 +1273,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     if (a.ContainsKey("name") && a["name"].Trim() != "")
@@ -1389,7 +1395,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("groupid"))
             {
-                string uid = await Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                string uid = Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
@@ -1426,7 +1432,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("id"))
             {
-                string uid = await Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                string uid = Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
 
                 UserProfile? up = await UserProfile.Get(a["id"]);
                 if (up != null)
@@ -1472,7 +1478,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("groupid"))
             {
-                string uid = await Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                string uid = Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
@@ -1503,7 +1509,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("groupid"))
             {
-                string uid = await Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                string uid = Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
@@ -1535,7 +1541,7 @@ public static class RequestHandler
             if (a != null && a.ContainsKey("groupid"))
             {
                 Group? gp = await Group.Get(a["groupid"]);
-                string uid = await Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                string uid = Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                 if (gp != null)
                 {
                     if (gp.CanDo(uid, Group.GroupAction.Read))
@@ -1565,7 +1571,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("groupid"))
             {
-                string uid = await Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
+                string uid = Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
                 Group? gp = await Group.Get(a["groupid"]);
                 if (gp != null)
                 {
@@ -1596,7 +1602,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Group? gp = await Group.Get(a["groupid"]);
@@ -1654,7 +1660,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Group? gp = await Group.Get(a["groupid"]);
@@ -1694,7 +1700,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Group? gp = await Group.Get(a["groupid"]);
@@ -1735,7 +1741,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Group? gp = await Group.Get(a["groupid"]);
@@ -1783,7 +1789,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Group? gp = await Group.Get(a["groupid"]);
@@ -1831,7 +1837,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Group? gp = await Group.Get(a["groupid"]);
@@ -1871,7 +1877,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"].ToString() ?? "");
+                string? uid = Pamukky.GetUIDFromToken(a["token"].ToString());
                 if (uid != null)
                 {
                     Group? gp = await Group.Get(a["groupid"].ToString() ?? "");
@@ -1954,7 +1960,7 @@ public static class RequestHandler
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
             if (a != null && a.ContainsKey("token") && a.ContainsKey("groupid") && a.ContainsKey("userid") && a.ContainsKey("role"))
             {
-                string? uid = await Pamukky.GetUIDFromToken(a["token"]);
+                string? uid = Pamukky.GetUIDFromToken(a["token"]);
                 if (uid != null)
                 {
                     Group? gp = await Group.Get(a["groupid"]);

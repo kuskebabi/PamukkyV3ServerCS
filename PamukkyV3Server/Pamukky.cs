@@ -47,14 +47,16 @@ internal class Pamukky
     }
 
     /// <summary>
-    /// Gets user ID from token.
+    /// Gets user ID from session.
     /// </summary>
-    /// <param name="token"></param>
+    /// <param name="token">Token of the session</param>
     /// <returns></returns>
-    public static async Task<string?> GetUIDFromToken(string token)
+    public static string? GetUIDFromToken(string? token)
     {
-        if (!UserSession.UserSessions.ContainsKey(token)) return null;
-        return UserSession.UserSessions[token].userID;
+        if (token == null) return null;
+        var session = UserSession.GetSession(token);
+        if (session == null) return null;
+        return session.userID;
     }
 
     public static void SaveData()
