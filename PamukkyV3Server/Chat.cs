@@ -17,6 +17,7 @@ class ChatMessage
     public MessageReactions reactions = new();
     public bool isPinned = false;
     public List<string> mentionUIDs = new();
+    public List<UserMessageRead> readByUIDs = new();
 
     #region Backwards compatibility
     public string sender
@@ -44,6 +45,12 @@ class ChatMessage
         set { sendTime = Helpers.StringToDate(value); }
     }
     #endregion
+}
+
+class UserMessageRead
+{
+    public string userID = "";
+    public DateTime readTime = DateTime.Now;
 }
 
 /// <summary>
@@ -141,7 +148,6 @@ class ChatFile
 /// </summary>
 class ChatMessageFormatted : ChatMessage
 { // Chat message formatted for client sending.
-    //public profileShort? senderuser; REMOVED. Data waste.
     public string? replyMessageContent;
     public string? replyMessageSenderUID;
 
@@ -149,7 +155,16 @@ class ChatMessageFormatted : ChatMessage
     public List<ChatFile>? gVideos;
     public List<ChatFile>? gAudio;
     public List<ChatFile>? gFiles;
-    //public string? forwardedname; REMOVED. Data waste.
+
+    public object readBy = 0;
+    public new List<UserMessageRead> readByUIDs
+    {
+        set
+        {
+            readBy = value;
+        }
+    }
+
     public ChatMessageFormatted(ChatMessage msg)
     {
         senderUID = msg.senderUID;
@@ -160,6 +175,7 @@ class ChatMessageFormatted : ChatMessage
         reactions = msg.reactions;
         forwardedFromUID = msg.forwardedFromUID;
         isPinned = msg.isPinned;
+        readByUIDs = msg.readByUIDs;
         //senderuser = profileShort.fromProfile(userProfile.Get(sender));
         //if (forwardedfrom != null) {
         //    forwardedname = profileShort.fromProfile(userProfile.Get(forwardedfrom)).name;
@@ -201,7 +217,7 @@ class ChatMessageFormatted : ChatMessage
                                 gFiles.Add(chatFile);
                                 //Console.WriteLine(extension);
                             }
-                            
+
                         }
                     }
                 }
@@ -235,6 +251,7 @@ class ChatMessageFormatted : ChatMessage
         d["reactions"] = reactions;
         d["forwardedFromUID"] = forwardedFromUID;
         d["isPinned"] = isPinned;
+        d["readBy"] = readBy;
         return d;
     }
 }
@@ -923,6 +940,39 @@ class Chat : OrderedDictionary<string, ChatMessage>
             return rect;
         }
         return new();
+    }
+
+    /// <summary>
+    /// Sets a message as "read" by the user
+    /// </summary>
+    /// <param name="msgID">ID of the message</param>
+    /// <param name="userID">ID of the user who will "read" the message</param>
+    /// <param name="readTime">Sets sent date of read. Null (default) for auto.</param>
+    public void ReadMessage(string msgID, string userID, DateTime? readTime = null)
+    {
+        if (ContainsKey(msgID))
+        {
+            ChatMessage msg = this[msgID];
+
+            if (msg.readByUIDs.FirstOrDefault(u => u.userID == userID) != null) return;
+
+            // set readtime if null (which is normally)
+            if (readTime == null) readTime = DateTime.Now;
+
+            msg.readByUIDs.Add(new()
+            {
+                userID = userID,
+                readTime = (DateTime)readTime
+            });
+
+            //Create event dictionary to send.
+            Dictionary<string, object?> update = new();
+            update["id"] = msgID;
+            update["userID"] = userID;
+            update["event"] = "READ";
+            update["readTime"] = readTime;
+            AddUpdate(update);
+        }
     }
 
     /// <summary>

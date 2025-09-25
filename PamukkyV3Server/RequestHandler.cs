@@ -814,6 +814,54 @@ public static class RequestHandler
                 res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
+        else if (action == "readmessage")
+        {
+            var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+            if (a != null && a.ContainsKey("token") && a.ContainsKey("chatid") && a.ContainsKey("messageids"))
+            {
+                string? uid = Pamukky.GetUIDFromToken(a["token"].ToString());
+                if (uid != null)
+                {
+                    Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
+                    if (chat != null)
+                    {
+                        if (a["messageids"] is JArray)
+                        {
+                            var messages = (JArray)a["messageids"];
+                            foreach (object msg in messages)
+                            {
+                                string? msgid = msg.ToString() ?? "";
+                                if (chat.CanDo(uid, Chat.ChatAction.Send))
+                                {
+                                    chat.ReadMessage(msgid, uid);
+                                }
+                            }
+                            res = JsonConvert.SerializeObject(new ServerResponse("done"));
+                        }
+                        else
+                        {
+                            statuscode = 411;
+                            res = JsonConvert.SerializeObject(new ServerResponse("error"));
+                        }
+                    }
+                    else
+                    {
+                        statuscode = 404;
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                    }
+                }
+                else
+                {
+                    statuscode = 404;
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
+                }
+            }
+            else
+            {
+                statuscode = 411;
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
+            }
+        }
         else if (action == "deletemessage")
         {
             var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
@@ -833,9 +881,7 @@ public static class RequestHandler
                                 string? msgid = msg.ToString() ?? "";
                                 if (chat.CanDo(uid, Chat.ChatAction.Delete, msgid))
                                 {
-                                    //if (chat.ContainsKey(msgid)) {
                                     chat.DeleteMessage(msgid);
-                                    //}
                                 }
                             }
                             res = JsonConvert.SerializeObject(new ServerResponse("done"));
@@ -1904,7 +1950,7 @@ public static class RequestHandler
                             if (a.ContainsKey("roles"))
                             {
                                 var roles = ((JObject)a["roles"]).ToObject<Dictionary<string, GroupRole>>() ?? gp.roles;
-                                
+
                                 if (gp.validateNewRoles(roles))
                                 {
                                     gp.roles = roles;

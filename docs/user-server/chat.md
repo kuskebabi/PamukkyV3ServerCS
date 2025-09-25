@@ -87,6 +87,18 @@ Sends a message.
 }
 ```
 
+## readmessage
+Sets messages in the `messageids` array as read by the user.
+### Usage
+(As body)
+```json
+{
+    "token": "(Token of the session)",
+    "chatid": "(ID of the chat)",
+    "messageids": ["(Message ID)", ...]
+}
+```
+
 ## deletemessage
 Deletes messages in the `messageids` array.
 ### Usage
@@ -203,6 +215,13 @@ Gets or waits for new typing updates. Different than format in "#Chat updater/ho
     "senderUID":"(User ID of the sender)",
     "content":"(Content of the message)",
     "sendTime":"(Send time of the message)",
+    "readBy": [ // (Or just number)
+        {
+            "userID": "(ID of the user)",
+            "readTime": "(Time when user read the message)"
+        },
+        ...
+    ],
     // Please look to media.md(##Message attachments format) for format of these 5 arrays.
     "files?": [...],
     "gImages?": [...],
@@ -231,11 +250,17 @@ Updates from a chat hook could be like these:
 ## NEWMESSAGE event
 Fires when a new message is sent. It's just a `{Message Object}` with normal event stuff like `id` (which is ID of the new message) and `event`.
 
+## READ event
+Fired when a message is read by a user. In future this event might only have the message id.
+
+* `userID` is ID of the user who read the message.
+* `readTime` is the time when user read the message.
+
 ## (UN)PINNED event
 Fired when a message is (un)pinned. Message data is available in the event.
 
 ## (UN)REACTED event
-Fired when a message is (un)reacted.
+Fired when a message is (un)reacted by a user.
 
 * `reaction` is reaction emoji.
 * `senderUID` is ID of the user who sent it.
