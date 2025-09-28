@@ -54,46 +54,75 @@ public class HTTPHandler
                     string? uid = Pamukky.GetUIDFromToken(context.Request.Headers["token"]);
                     if (uid != null)
                     {
-                        if (context.Request.Headers["content-length"] != null)
+                        string? contentLengthString = context.Request.Headers["content-length"];
+                        if (contentLengthString != null)
                         {
-                            int contentLength = int.Parse(context.Request.Headers["content-length"] ?? "0");
+                            int contentLength = int.Parse(contentLengthString);
                             if (contentLength != 0)
                             {
-                                errorResponse = false;
+                                string type = context.Request.Headers["type"] == "thumb" ? "thumb" : "file";
                                 string id = "";
-                                do
+                                if (type == "file")
                                 {
-                                    id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
+                                    do
+                                    {
+                                        id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
+                                    }
+                                    while (File.Exists("data/upload/" + id));
                                 }
-                                while (File.Exists("data/upload/" + id));
-                                var stream = context.Request.InputStream;
-                                //stream.Seek(0, SeekOrigin.Begin);
-                                var fileStream = File.Create("data/upload/" + id + ".file");
-                                await stream.CopyToAsync(fileStream);
-                                fileStream.Close();
-                                fileStream.Dispose();
-                                FileUpload u = new()
+                                else if (type == "thumb")
                                 {
-                                    size = contentLength,
-                                    actualName = context.Request.Headers["filename"] ?? id,
-                                    sender = uid,
-                                    contentType = context.Request.Headers["content-type"] ?? ""
-                                };
+                                    string? expectedID = context.Request.Headers["id"];
+                                    if (expectedID != null)
+                                    {
+                                        var upload = FileUpload.Get(expectedID); // Get the upload
+                                        if (upload?.sender == uid) // Check if user owns that file
+                                        {
+                                            id = expectedID;
+                                        }
+                                    }
+                                }
 
-                                string? uf = JsonConvert.SerializeObject(u);
-                                if (uf == null) throw new Exception("???");
-                                File.WriteAllText("data/upload/" + id, uf);
 
-                                res = JsonConvert.SerializeObject(new FileUploadResponse("success", "%SERVER%getmedia?file=" + id));
-                                context.Response.StatusCode = statuscode;
-                                context.Response.ContentType = "text/json";
-                                byte[] bts = Encoding.UTF8.GetBytes(res);
-                                context.Response.OutputStream.Write(bts, 0, bts.Length);
-                                context.Response.KeepAlive = false;
-                                context.Response.Close();
-                                string extension = u.contentType.Split("/")[1];
-                                if (extension == "png" || extension == "jpeg" || extension == "gif" || extension == "bmp")
-                                    MediaProcesser.AddJob(id);
+                                if (id != "")
+                                {
+                                    errorResponse = false;
+
+                                    var stream = context.Request.InputStream;
+
+                                    var fileStream = File.Create("data/upload/" + id + "." + type);
+                                    await stream.CopyToAsync(fileStream);
+                                    fileStream.Close();
+                                    fileStream.Dispose();
+
+                                    if (type == "file")
+                                    {
+                                        FileUpload uploadData = new()
+                                        {
+                                            size = contentLength,
+                                            actualName = HttpUtility.UrlEncode(context.Request.Headers["filename"] ?? id),
+                                            sender = uid,
+                                            contentType = context.Request.Headers["content-type"] ?? ""
+                                        };
+
+                                        string? uf = JsonConvert.SerializeObject(uploadData);
+                                        if (uf == null) throw new Exception("???");
+                                        File.WriteAllText("data/upload/" + id, uf);
+                                    }
+
+                                    res = JsonConvert.SerializeObject(new FileUploadResponse(id));
+                                    context.Response.StatusCode = statuscode;
+                                    context.Response.ContentType = "text/json";
+                                    byte[] bts = Encoding.UTF8.GetBytes(res);
+                                    context.Response.OutputStream.Write(bts, 0, bts.Length);
+                                    context.Response.KeepAlive = false;
+                                    context.Response.Close();
+                                }
+                                else
+                                {
+                                    statuscode = 404;
+                                    res = JsonConvert.SerializeObject(new RequestHandler.ServerResponse("error", "NOFILE", "No file."));
+                                }
                             }
                             else
                             {
@@ -130,7 +159,6 @@ public class HTTPHandler
                         FileUpload? f = JsonConvert.DeserializeObject<FileUpload>(await File.ReadAllTextAsync("data/upload/" + file));
                         if (f != null)
                         {
-                            errorResponse = false;
                             //context.Response.AddHeader("Content-Length", f.size.ToString());
                             if (context.Request.Headers["sec-fetch-dest"] != "document")
                             {
@@ -138,15 +166,10 @@ public class HTTPHandler
                             }
                             context.Response.StatusCode = statuscode;
 
-                            string extension = f.contentType.Split("/")[1];
-                            if (!(extension == "png" || extension == "jpeg" || extension == "gif" || extension == "bmp"))
-                            {
-                                type = "file";
-                            }
-
                             string path = "data/upload/" + file + "." + (type == "thumb" ? "thumb" : "file");
-                            async void sendFile()
+                            if (File.Exists(path))
                             {
+                                errorResponse = false;
                                 var fileStream = File.OpenRead(path);
                                 context.Response.KeepAlive = false;
                                 try
@@ -161,29 +184,10 @@ public class HTTPHandler
                                 fileStream.Close();
                                 fileStream.Dispose();
                             }
-                            if (File.Exists(path))
-                            {
-                                sendFile();
-                            }
                             else
                             {
-                                string apath = "data/upload/" + file + ".file";
-                                bool error = !File.Exists(apath);
-
-                                if (error)
-                                {
-                                    statuscode = 404;
-                                    res = JsonConvert.SerializeObject(new RequestHandler.ServerResponse("error", "File doesn't exist, could be the thumbnail."));
-                                }
-                                else
-                                {
-                                    MediaProcesser.AddJob(file); //Generate it for next visits and current one
-                                    while (!File.Exists(path))
-                                    {
-                                        await Task.Delay(1000);
-                                    }
-                                    sendFile();
-                                }
+                                statuscode = 404;
+                                res = JsonConvert.SerializeObject(new RequestHandler.ServerResponse("error", "File doesn't exist, could be the thumbnail."));
                             }
                         }
                         else

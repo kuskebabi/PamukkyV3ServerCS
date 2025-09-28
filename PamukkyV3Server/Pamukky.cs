@@ -158,8 +158,6 @@ internal class Pamukky
 
         AutoSaveTick(); // Start the autosave ticker
 
-        MediaProcesser.StartThread(); // Start a (single) mediaprocesser thread.
-
         // CLI
         Console.WriteLine("Pamukky  Copyright (C) 2025  HAKANKOKCU");
         Console.WriteLine();

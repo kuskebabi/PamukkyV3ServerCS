@@ -7,8 +7,18 @@ Allows users to upload files. There is currently no size limit. File is directly
 token = (token of the user)
 content-length = (file size)
 content-type = (file type)
+
+// Only for full upload
+
 filename = (Actual name of the file)
+type = file
+
+// Only for thumbnails
+
+id = (ID of the file)
+type = thumb
 ```
+
 ## getmedia API
 Gets file from uploads. As the type, thumb would show thumbnails of images, file will give full file.
 ### Usage
