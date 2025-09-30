@@ -100,7 +100,7 @@ public class HTTPHandler
                                         FileUpload uploadData = new()
                                         {
                                             size = contentLength,
-                                            actualName = HttpUtility.UrlEncode(context.Request.Headers["filename"] ?? id),
+                                            actualName = HttpUtility.UrlDecode(context.Request.Headers["filename"] ?? id),
                                             sender = uid,
                                             contentType = context.Request.Headers["content-type"] ?? ""
                                         };
