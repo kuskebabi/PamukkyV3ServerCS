@@ -69,6 +69,25 @@ This API sets the user as online.
     "token": "(Token of the session)",
 } 
 ```
+
+## getsessioninfo
+Gets info of the session from the token.
+### Usage
+(As body)
+```json
+{
+    "token": "(Token of the session)",
+} 
+```
+### Responses
+#### Success
+```json
+{
+    "token": "(Token of the session)",
+    "userID": "(ID of the user)"
+} 
+```
+
 ## logout
 Makes the session token invalid.
 ### Usage

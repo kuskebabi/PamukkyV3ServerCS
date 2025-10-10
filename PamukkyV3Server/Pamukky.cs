@@ -159,7 +159,7 @@ internal class Pamukky
         AutoSaveTick(); // Start the autosave ticker
 
         // CLI
-        Console.WriteLine("Pamukky  Copyright (C) 2025  HAKANKOKCU");
+        Console.WriteLine("Pamukky  Copyright (C) 2025  Kuskebabi");
         Console.WriteLine();
         Console.WriteLine("This program comes with ABSOLUTELY NO WARRANTY; This is free software, and you are welcome to redistribute it under certain conditions.");
         Console.WriteLine("Type help for help.");

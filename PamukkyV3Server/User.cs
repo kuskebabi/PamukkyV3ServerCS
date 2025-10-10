@@ -97,7 +97,7 @@ class UserSession
         do
         {
             //Console.WriteLine("Generating token...");
-            token = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
+            token = userID + Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
         }
         while (UserSessions.ContainsKey(token));
 

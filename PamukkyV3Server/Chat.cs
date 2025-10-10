@@ -199,12 +199,12 @@ class ChatMessageFormatted : ChatMessage
                             if (gImages == null) gImages = new();
                             gImages.Add(chatFile);
                         }
-                        else if (type == "video/mpeg" || type == "video/mp4")
+                        else if (type == "video/mpeg" || type == "video/mp4" || type == "video/ogv")
                         {
                             if (gVideos == null) gVideos = new();
                             gVideos.Add(chatFile);
                         }
-                        else if (type == "audio/mpeg" || type == "audio/mp4")
+                        else if (type == "audio/mpeg" || type == "audio/mp4" || type == "audio/aac" || type == "audio/oga")
                         {
                             if (gAudio == null) gAudio = new();
                             gAudio.Add(chatFile);

@@ -207,6 +207,27 @@ public static class RequestHandler
                 res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
+        else if (action == "getsessioninfo")
+        {
+            var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
+            if (a != null && a.ContainsKey("token"))
+            {
+                var session = UserSession.GetSession(a["token"]);
+                if (session != null)
+                {
+                    res = JsonConvert.SerializeObject(session);
+                }else
+                {
+                    statuscode = 404;
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
+                }
+            }
+            else
+            {
+                statuscode = 411;
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
+            }
+        }
         else if (action == "logout")
         {
             var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
@@ -744,7 +765,7 @@ public static class RequestHandler
             if (a != null)
             {
                 List<string>? files = a.ContainsKey("files") && (a["files"] is JArray) ? ((JArray)a["files"]).ToObject<List<string>>() : null;
-                if (a.ContainsKey("token") && a.ContainsKey("chatid") && ((a.ContainsKey("content") && (a["content"].ToString() ?? "") != "") || (files != null && files.Count > 0)))
+                if (a.ContainsKey("token") && a.ContainsKey("chatid") && ((a.ContainsKey("content") && (a["content"].ToString() ?? "").Length != 0) || (files != null && files.Count > 0)))
                 {
                     string? uid = Pamukky.GetUIDFromToken(a["token"].ToString());
                     if (uid != null)
@@ -757,7 +778,7 @@ public static class RequestHandler
                                 ChatMessage msg = new()
                                 {
                                     senderUID = uid,
-                                    content = (a["content"].ToString() ?? "").Trim(),
+                                    content = a["content"].ToString() ?? "",
                                     replyMessageID = a.ContainsKey("replymessageid") ? a["replymessageid"].ToString() : null,
                                     files = files
                                 };
@@ -769,7 +790,7 @@ public static class RequestHandler
                                 }
                                 else if (a.ContainsKey("mentionuids") && a["mentionuids"].ToString() == "[CHAT]")
                                 {
-                                    msg.mentionUIDs = new() {"[CHAT]"};
+                                    msg.mentionUIDs = new() { "[CHAT]" };
                                 }
                                 else
                                 {
