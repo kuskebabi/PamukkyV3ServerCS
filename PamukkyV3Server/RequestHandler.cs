@@ -1530,7 +1530,7 @@ public static class RequestHandler
                     else
                     {
                         statuscode = 404;
-                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOGROUP", "Group doesn't exist."));
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOTFOUND", "Not found."));
                     }
                 }
             }
@@ -1975,15 +1975,19 @@ public static class RequestHandler
                                 if (gp.validateNewRoles(roles))
                                 {
                                     gp.roles = roles;
-                                    gp.notifyEdit(Group.EditType.WithRoles);
+                                    gp.notifyEdit(Group.EditType.WithRoles, uid);
+                                }else
+                                {
+                                    gp.notifyEdit(Group.EditType.Basic, uid);
                                 }
                             }
                             else
                             {
-                                gp.notifyEdit(Group.EditType.Basic);
+                                gp.notifyEdit(Group.EditType.Basic, uid);
                             }
                             res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             gp.Save();
+
                             Chat? chat = await Chat.GetChat(gp.groupID);
                             if (chat != null)
                             {
@@ -2173,6 +2177,8 @@ public static class RequestHandler
                     };
                 }
 
+                fedrequest.serverurl = fedrequest.serverurl.ToLower();
+
                 if (fedrequest.serverurl == Federation.thisServerURL)
                 {
                     return new ActionReturn()
@@ -2188,14 +2194,15 @@ public static class RequestHandler
                     var httpTask = await Federation.GetHttpClient().GetAsync(fedrequest.serverurl);
                     Console.WriteLine("federationrequest/pingpong " + await httpTask.Content.ReadAsStringAsync());
                     // Valid, allow to federate
-                    string id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
                     if (Federation.federations.ContainsKey(fedrequest.serverurl))
                     {
-                        Federation.federations[fedrequest.serverurl].FederationRequestReconnected(id);
+                        Federation.federations[fedrequest.serverurl].FederationRequestReconnected();
                     }
                     else
                     {
+                        string id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
                         Federation fed = new(fedrequest.serverurl, id);
+                        fed.startTick();
                         Federation.federations[fedrequest.serverurl] = fed;
                     }
 
@@ -2233,6 +2240,15 @@ public static class RequestHandler
                     {
                         statusCode = 404,
                         res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Federation not found."))
+                    };
+                }
+
+                if (fed.cachedUpdates == null)
+                {
+                    return new ActionReturn()
+                    {
+                        statusCode = 500,
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "CACHEERR", "Federation cache not generated."))
                     };
                 }
 
@@ -2285,6 +2301,15 @@ public static class RequestHandler
                     };
                 }
 
+                if (fed.cachedUpdates == null)
+                {
+                    return new ActionReturn()
+                    {
+                        statusCode = 500,
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "CACHEERR", "Federation cache not generated."))
+                    };
+                }
+
                 if (!fedrequest.ContainsKey("groupid"))
                 {
                     return new ActionReturn()
@@ -2325,6 +2350,7 @@ public static class RequestHandler
                         }
                     }
                 }
+
                 if (showfullinfo)
                 {
                     fed.cachedUpdates.AddHook(group);
@@ -2363,6 +2389,15 @@ public static class RequestHandler
                     {
                         statusCode = 404,
                         res = JsonConvert.SerializeObject(new ServerResponse("error", "NOFED", "Federation not found."))
+                    };
+                }
+
+                if (fed.cachedUpdates == null)
+                {
+                    return new ActionReturn()
+                    {
+                        statusCode = 500,
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "CACHEERR", "Federation cache not generated."))
                     };
                 }
 
@@ -2478,7 +2513,7 @@ public static class RequestHandler
                                 {
                                     // Get the typing user and fix id
                                     string user = fed.FixUserID(upd.Key.Split("|")[1]);
-                                    if ((bool)upd.Value) // Typing
+                                    if ((bool)upd.Value && chat.CanDo(user, Chat.ChatAction.Send)) // Typing
                                     {
                                         chat.SetTyping(user);
                                     }
@@ -2492,7 +2527,7 @@ public static class RequestHandler
                                     var update = (JObject)upd.Value;
                                     string eventn = (update["event"] ?? "").ToString() ?? "";
                                     string mid = (update["id"] ?? "").ToString() ?? "";
-                                    if (eventn == "NEWMESSAGE")
+                                    if (eventn == "NEWMESSAGE" && chat.CanDo(fed.serverURL, Chat.ChatAction.Send))
                                     {
                                         if ((update["senderUID"] ?? "").ToString() == "0")
                                         {
@@ -2529,25 +2564,39 @@ public static class RequestHandler
                                     }
                                     else if (eventn.EndsWith("REACTED"))
                                     {
-                                        if (update.ContainsKey("id") && update.ContainsKey("senderUID") && update.ContainsKey("reaction"))
+                                        if (update.ContainsKey("senderUID") && update.ContainsKey("reaction"))
                                         {
-                                            if (update["id"] != null && update["senderUID"] != null && update["reaction"] != null)
+                                            if (update["senderUID"] != null && update["reaction"] != null)
                                             {
-                                                chat.ReactMessage(mid, fed.FixUserID((update["senderUID"] ?? "").ToString() ?? ""), (update["reaction"] ?? "").ToString() ?? "", eventn == "REACTED", update.ContainsKey("sendTime") ? (DateTime?)update["sendTime"] : null);
+                                                string uid = fed.FixUserID((update["senderUID"] ?? "").ToString() ?? "");
+                                                if (chat.CanDo(uid, Chat.ChatAction.React))
+                                                    chat.ReactMessage(mid, uid, (update["reaction"] ?? "").ToString() ?? "", eventn == "REACTED", update.ContainsKey("sendTime") ? (DateTime?)update["sendTime"] : null);
                                             }
                                         }
                                     }
-                                    else if (eventn == "DELETED")
+                                    else if (eventn == "DELETED" && chat.CanDo(fed.serverURL, Chat.ChatAction.Delete, mid))
                                     {
                                         chat.DeleteMessage(mid);
                                     }
-                                    else if (eventn == "PINNED")
+                                    else if (eventn == "PINNED" && chat.CanDo(fed.serverURL, Chat.ChatAction.Pin, mid))
                                     {
                                         chat.PinMessage(mid, true);
                                     }
-                                    else if (eventn == "UNPINNED")
+                                    else if (eventn == "UNPINNED" && chat.CanDo(fed.serverURL, Chat.ChatAction.Pin, mid))
                                     {
                                         chat.PinMessage(mid, false);
+                                    }
+                                    else if (eventn == "READ")
+                                    {
+                                        if (update.ContainsKey("userID") && update.ContainsKey("readTime"))
+                                        {
+                                            if (update["userID"] != null && update["readTime"] != null)
+                                            {
+                                                string uid = fed.FixUserID((update["userID"] ?? "").ToString() ?? "");
+                                                if (chat.CanDo(uid, Chat.ChatAction.React))
+                                                    chat.ReadMessage(mid, uid, (DateTime?)update["readTime"]);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -2556,7 +2605,6 @@ public static class RequestHandler
                     else if (type == "user")
                     {
                         string id = target.Split("@")[0];
-                        Console.WriteLine(target);
                         UserProfile? profile = await UserProfile.Get(id + "@" + fed.serverURL);
                         if (profile != null)
                         {
@@ -2564,7 +2612,6 @@ public static class RequestHandler
                             if (updates.ContainsKey("online"))
                             {
                                 string onlineStatus = (updates["online"] ?? "").ToString() ?? "";
-                                Console.WriteLine(onlineStatus);
                                 profile.onlineStatus = onlineStatus;
                             }
 
@@ -2609,16 +2656,16 @@ public static class RequestHandler
 
                                     if (role == "")
                                     {
-                                        group.UnbanUser(user);
-                                        await group.RemoveUser(user);
+                                        if (group.CanDo(fed.serverURL, Group.GroupAction.Ban)) group.UnbanUser(user);
+                                        if (group.CanDo(fed.serverURL, Group.GroupAction.Kick)) await group.RemoveUser(user);
                                     }
-                                    else if (role == "BANNED")
+                                    else if (role == "BANNED" && group.CanDo(fed.serverURL, Group.GroupAction.Ban))
                                     {
                                         await group.BanUser(user);
                                     }
                                     else
                                     {
-                                        if (group.members.ContainsKey(user))
+                                        if (group.members.ContainsKey(user) && group.CanDo(fed.serverURL, Group.GroupAction.EditUser))
                                         {
                                             group.SetUserRole(user, role);
                                         }
@@ -2627,26 +2674,31 @@ public static class RequestHandler
                                             await group.AddUser(user, role);
                                         }
                                     }
+
+                                    group.Save();
                                 }
                                 else
                                 {
                                     var update = (JObject)upd.Value;
-                                    if (upd.Key == "edit")
+                                    if (upd.Key == "edit" && group.CanDo(fed.serverURL, Group.GroupAction.EditGroup))
                                     {
-                                        if (update.ContainsKey("name") && update.ContainsKey("info") && update.ContainsKey("picture") && update.ContainsKey("isPublic"))
+                                        if (update.ContainsKey("name") && update.ContainsKey("info") && update.ContainsKey("picture") && update.ContainsKey("isPublic") && update.ContainsKey("userID"))
                                         {
+                                            string userID = (update["userID"] ?? "").ToString();
                                             string name = (update["name"] ?? "").ToString();
-                                            string picture = (update["name"] ?? "").ToString();
-                                            string info = (update["name"] ?? "").ToString();
+                                            string picture = (update["picture"] ?? "").ToString();
+                                            string info = (update["info"] ?? "").ToString();
                                             bool isPublic = (bool)(update["isPublic"] ?? false);
 
+                                            bool edit = false;
                                             if (group.name != name || group.picture != picture || group.info != info || group.isPublic != isPublic)
                                             {
                                                 group.name = name;
                                                 group.picture = picture;
                                                 group.info = info;
                                                 group.isPublic = isPublic;
-                                                group.notifyEdit(Group.EditType.Basic);
+                                                edit = true;
+                                                if (!update.ContainsKey("roles")) group.notifyEdit(Group.EditType.Basic, userID);
                                             }
                                             if (update.ContainsKey("roles"))
                                             {
@@ -2657,9 +2709,34 @@ public static class RequestHandler
                                                     if (roles != null && group.validateNewRoles(roles))
                                                     {
                                                         group.roles = roles;
+                                                        edit = true;
+                                                        group.notifyEdit(Group.EditType.WithRoles, userID);
                                                     }
-
+                                                    else if (edit)
+                                                    {
+                                                        group.notifyEdit(Group.EditType.Basic, userID);
+                                                    }
                                                 }
+                                            }
+
+                                            if (edit)
+                                            {
+                                                Chat? chat = await Chat.GetChat(group.groupID);
+                                                if (chat != null)
+                                                {
+                                                    string uid = fed.FixUserID(userID);
+                                                    if (chat.CanDo(uid, Chat.ChatAction.Send))
+                                                    {
+                                                        ChatMessage message = new()
+                                                        {
+                                                            senderUID = "0",
+                                                            content = "EDITGROUP|" + uid
+                                                        };
+                                                        chat.SendMessage(message);
+                                                    }
+                                                }
+
+                                                group.Save();
                                             }
                                         }
                                     }

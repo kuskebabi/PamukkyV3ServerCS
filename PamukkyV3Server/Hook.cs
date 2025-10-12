@@ -23,19 +23,24 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
     /// <returns>New updates</returns>
     public UpdateHooks GetNewUpdates(bool clear = true)
     {
-        if (!clear) return this;
-
         UpdateHooks rtrn = new();
         foreach (var hook in this)
         {
             if (hook.Value.Count > 0)
             {
-                UpdateHook uhook = new();
-                foreach (var kv in hook.Value) {
-                    uhook[kv.Key] = kv.Value;
+                if (clear)
+                {
+                    UpdateHook uhook = new();
+                    foreach (var kv in hook.Value)
+                    {
+                        uhook[kv.Key] = kv.Value;
+                    }
+                    rtrn[hook.Key] = uhook;
+                    hook.Value.Clear();
+                }else
+                {
+                    rtrn[hook.Key] = hook.Value;
                 }
-                rtrn[hook.Key] = uhook;
-                hook.Value.Clear();
             }
         }
         return rtrn;
@@ -50,12 +55,12 @@ class UpdateHooks : ConcurrentDictionary<string, UpdateHook>
     public async Task<UpdateHooks> waitForUpdates(int maxWait = 600, bool clear = true)
     {
         int wait = maxWait;
-        var updates = clear ? GetNewUpdates() : this;
+        var updates = GetNewUpdates(clear);
 
         while (updates.Count == 0 && wait > 0)
         {
             await Task.Delay(100);
-            if (clear) updates = GetNewUpdates();
+            updates = GetNewUpdates(clear);
             --wait;
         }
 

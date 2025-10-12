@@ -136,7 +136,7 @@ internal class Pamukky
             config = JsonConvert.DeserializeObject<ServerConfig>(File.ReadAllText(configPath ?? "")) ?? new();
             HTTPport = config.httpPort;
             HTTPSport = config.httpsPort;
-            if (config.publicUrl != null) Federation.thisServerURL = config.publicUrl;
+            if (config.publicUrl != null) Federation.thisServerURL = config.publicUrl.ToLower();
             if (File.Exists(config.termsOfServiceFile))
             {
                 serverTOS = File.ReadAllText(config.termsOfServiceFile);

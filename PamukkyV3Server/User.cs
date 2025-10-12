@@ -469,7 +469,7 @@ class UserProfile
     {
         if (lastOnlineTime == null)
         {
-            return Helpers.DateToString(DateTime.MinValue);
+            return DateTime.MinValue.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
         }
         else
         {
@@ -479,7 +479,7 @@ class UserProfile
             }
             else
             { //Return last online
-                return Helpers.DateToString(lastOnlineTime.Value);
+                return lastOnlineTime.Value.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
             }
         }
     }

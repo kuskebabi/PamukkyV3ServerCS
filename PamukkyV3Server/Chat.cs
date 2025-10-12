@@ -1101,11 +1101,23 @@ class Chat : OrderedDictionary<string, ChatMessage>
     {
         if (action == ChatAction.Read && group.isPublic) return true;
 
-        if (target.Contains(":") || target.Contains("."))
+        if ((target.Contains(":") || target.Contains(".")) && !target.Contains("@"))
         {
-            //Console.WriteLine("Fed Allow");
             // If federations weren't still allowed no matter what, that would result in sync issues.
-            return true;
+            if (action == ChatAction.Read) return true;
+
+            foreach (var member in group.members.Keys)
+            {
+                if (member.Contains("@"))
+                {
+                    string[] split = member.Split("@");
+                    string server = split[1];
+                    if (server == target)
+                    {
+                        if (CanDo(member, action, msgid)) return true;
+                    }
+                }
+            }
         }
 
         GroupMember? u = null;

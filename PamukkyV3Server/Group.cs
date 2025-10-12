@@ -79,7 +79,6 @@ class Group
                     if (g is Group)
                     {
                         var group = (Group)g;
-                        group.groupID = gid;
                         groupsCache[gid] = group;
                         group.Save(); // Save the group from the federation in case it goes offline after some time.
 
@@ -313,11 +312,25 @@ class Group
     {
         if (action == GroupAction.Read && isPublic) return true;
 
-        if (user.Contains(":") || user.Contains("."))
+        if ((user.Contains(":") || user.Contains(".")) && !user.Contains("@"))
         {
-            //Console.WriteLine("Fed Allow");
             // If federations weren't still allowed no matter what, that would result in sync issues.
-            return true;
+            if (action == GroupAction.Read) return true;
+
+            foreach (var member in members.Keys)
+            {
+                if (member.Contains("@"))
+                {
+                    string[] split = member.Split("@");
+                    string server = split[1];
+                    if (server == user)
+                    {
+                        if (CanDo(member, action, target)) return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         GroupMember? u = null;
@@ -347,9 +360,10 @@ class Group
             if (action == GroupAction.EditUser) return role.AllowEditingUsers && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
             if (action == GroupAction.Kick) return role.AllowKicking && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
             if (action == GroupAction.Ban) return role.AllowBanning && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
-        }
-        else
+        }else
         {
+            if (action == GroupAction.EditUser) return role.AllowEditingUsers;
+            if (action == GroupAction.Kick) return role.AllowKicking;
             if (action == GroupAction.Ban) return role.AllowBanning;
         }
 
@@ -422,22 +436,45 @@ class Group
         }
     }
 
-    public bool validateNewRoles(Dictionary<string, GroupRole> roles) {
-        foreach (var role in roles)
+    public bool validateNewRoles(Dictionary<string, GroupRole> newroles) {
+        bool diff = roles.Count != newroles.Count;
+        
+        foreach (var role in newroles)
         {
             if (role.Key == "BANNED" || role.Key.Trim() == "")
             {
                 return false;
             }
+            if (!diff && roles.ContainsKey(role.Key))
+            {
+                var oldrole = roles[role.Key];
+                var newrole = role.Value;
+
+                if (
+                    newrole.AdminOrder != oldrole.AdminOrder ||
+                    newrole.AllowBanning != oldrole.AllowBanning ||
+                    newrole.AllowEditingSettings != oldrole.AllowEditingSettings ||
+                    newrole.AllowEditingUsers != oldrole.AllowEditingUsers ||
+                    newrole.AllowKicking != oldrole.AllowKicking ||
+                    newrole.AllowMessageDeleting != oldrole.AllowMessageDeleting ||
+                    newrole.AllowPinningMessages != oldrole.AllowPinningMessages ||
+                    newrole.AllowSending != oldrole.AllowSending ||
+                    newrole.AllowSendingReactions != oldrole.AllowSendingReactions
+                )
+                {
+                    diff = true;
+                }
+            }
         }
         foreach (var member in members.Values)
         {
-            if (!roles.ContainsKey(member.role))
+            if (!newroles.ContainsKey(member.role))
             {
                 return false;
             }
         }
-        return true;
+        
+        return diff;
     }
 
     /// <summary>
@@ -524,29 +561,31 @@ class Group
     /// Notifies listeners for group info (or with roles) updates.
     /// </summary>
     /// <param name="type">Type of the update</param>
-    public void notifyEdit(EditType type)
+    public void notifyEdit(EditType type, string userid)
     {
         object update;
 
         if (type == EditType.Basic)
         {
-            update = new GroupInfo()
-            {
-                name = name,
-                info = info,
-                picture = picture,
-                isPublic = isPublic
-            };
-        }
-        else
-        {
-            update = new GroupInfoWithRoles()
+            update = new GroupUpdate()
             {
                 name = name,
                 info = info,
                 picture = picture,
                 isPublic = isPublic,
-                roles = roles
+                userID = userid
+            };
+        }
+        else
+        {
+            update = new GroupUpdateWithRoles()
+            {
+                name = name,
+                info = info,
+                picture = picture,
+                isPublic = isPublic,
+                roles = roles,
+                userID = userid
             };
         }
 
@@ -572,14 +611,18 @@ class GroupInfo
 }
 
 /// <summary>
+/// Group info for updater
+/// </summary>
+class GroupUpdate : GroupInfo
+{
+    public string userID = "";
+}
+
+/// <summary>
 /// Stripped Group for use in updater where roles is also changed
 /// </summary>
-class GroupInfoWithRoles
+class GroupUpdateWithRoles : GroupUpdate
 {
-    public string name = "";
-    public string picture = "";
-    public string info = "";
-    public bool isPublic = false;
     public Dictionary<string, GroupRole> roles = new();
 }
 
