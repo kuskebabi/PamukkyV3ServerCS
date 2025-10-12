@@ -976,7 +976,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
     /// <param name="msgID">ID of the message to pin/unpin.</param>
     /// <param name="val">Null to toggle, false to unpin, true to pin.</param>
     /// <returns>Pinned status of the message.</returns>
-    public bool PinMessage(string msgID, bool? val = null)
+    public bool PinMessage(string msgID, bool? val = null, string? userid = null)
     {
         if (ContainsKey(msgID))
         {
@@ -1001,15 +1001,27 @@ class Chat : OrderedDictionary<string, ChatMessage>
             ChatMessageFormatted? f = FormatMessage(msgID);
             if (f != null)
             {
+                f.isPinned = message.isPinned;
                 Dictionary<string, object?> update = new();
                 update["event"] = message.isPinned ? "PINNED" : "UNPINNED";
+                if (userid != null) update["userID"] = msgID;
                 update["id"] = msgID;
                 AddUpdate(update);
             }
-            if (formatCache.ContainsKey(msgID))
+
+            if (userid != null)
             {
-                formatCache[msgID].isPinned = message.isPinned;
+                if (CanDo(userid, ChatAction.Send))
+                {
+                    ChatMessage pinmessage = new()
+                    {
+                        senderUID = "0",
+                        content = (message.isPinned ? "" : "UN") + "PINNEDMESSAGE|" + userid + "|" + msgID
+                    };
+                    SendMessage(pinmessage);
+                }
             }
+
             return message.isPinned;
         }
         return false;

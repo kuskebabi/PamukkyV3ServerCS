@@ -231,11 +231,13 @@ Gets or waits for new typing updates. Different than format in "#Chat updater/ho
     "reactions?":{
         "(Emoji)":{
             "(ID of the user)":{
-                    "reaction":"(Emoji)",
-                    "senderUID":"(ID of the user)",
-                    "sendTime":"(Send time of the reaction)"
-                }
-            }
+                "reaction":"(Emoji)",
+                "senderUID":"(ID of the user)",
+                "sendTime":"(Send time of the reaction)"
+            },
+            ...
+        },
+        ...
     },
     "isPinned": boolean // If the message is pinned or not
 }
@@ -257,7 +259,7 @@ Fired when a message is read by a user. In future this event might only have the
 * `readTime` is the time when user read the message.
 
 ## (UN)PINNED event
-Fired when a message is (un)pinned. Message data is available in the event.
+Fired when a message is (un)pinned. Message data is available in the event. This update also contains who (un)pinned the message, in the `userID` key.
 
 ## (UN)REACTED event
 Fired when a message is (un)reacted by a user.

@@ -950,16 +950,7 @@ public static class RequestHandler
                                 string? msgid = msg.ToString() ?? "";
                                 if (chat.CanDo(uid, Chat.ChatAction.Pin, msgid))
                                 {
-                                    bool pinned = chat.PinMessage(msgid);
-                                    if (chat.CanDo(uid, Chat.ChatAction.Send))
-                                    {
-                                        ChatMessage message = new()
-                                        {
-                                            senderUID = "0",
-                                            content = (pinned ? "" : "UN") + "PINNEDMESSAGE|" + uid + "|" + msgid
-                                        };
-                                        chat.SendMessage(message);
-                                    }
+                                    chat.PinMessage(msgid, null, uid);
                                 }
                             }
                             res = JsonConvert.SerializeObject(new ServerResponse("done"));
@@ -2580,11 +2571,17 @@ public static class RequestHandler
                                     }
                                     else if (eventn == "PINNED" && chat.CanDo(fed.serverURL, Chat.ChatAction.Pin, mid))
                                     {
-                                        chat.PinMessage(mid, true);
+                                        if (update.ContainsKey("userID") && update["userID"] != null)
+                                        {
+                                            chat.PinMessage(mid, true, update["userID"]?.ToString());
+                                        }
                                     }
                                     else if (eventn == "UNPINNED" && chat.CanDo(fed.serverURL, Chat.ChatAction.Pin, mid))
                                     {
-                                        chat.PinMessage(mid, false);
+                                        if (update.ContainsKey("userID") && update["userID"] != null)
+                                        {
+                                            chat.PinMessage(mid, false, update["userID"]?.ToString());
+                                        }
                                     }
                                     else if (eventn == "READ")
                                     {

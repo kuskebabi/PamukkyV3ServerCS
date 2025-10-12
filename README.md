@@ -29,6 +29,7 @@ All stuff here is optional.
     "httpsPort": 4280,
     "termsOfServiceFile": "/home/user/pamukkytos.txt",
     "publicUrl": "https://...:4280/",
+    "maxFileSize": 24,
     "systemProfile": {
         "name": "Pamuk but weird birb",
         "picture": "",
@@ -41,6 +42,7 @@ All stuff here is optional.
 * `httpPort` Port for https. null for none.
 * `termsOfServiceFile` File path that has server terms of service. null for none.
 * `publicUrl` Public URL of the server for federation. null for none.
+* `maxFileSize` Max file size for uploads in megabytes.
 
 
 # Status

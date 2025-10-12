@@ -37,6 +37,10 @@ internal class Pamukky
         /// </summary>
         public string? publicUrl = null;
         /// <summary>
+        /// Max file size for uploads. default is 24 megabytes.
+        /// </summary>
+        public long maxFileSize = 24;
+        /// <summary>
         /// System profile.
         /// </summary>
         public UserProfile systemProfile = new()

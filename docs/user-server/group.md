@@ -240,4 +240,4 @@ Makes user leave the group
 Updates from a chat hook could be like these:
 
 * Update name being like `USER|(User ID)`, if value is a empty string the user has left, if value is `BANNED` the user has been banned, if value is a role, user has joined or role has been changed.
-* Update name being `edit`, sending what `/getgroup` does or also with `roles` object included.
+* Update name being `edit`, sending what `/getgroup` does or also with `roles` object included. This update also contains who edited the group, in the `userID` key.
