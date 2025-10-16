@@ -141,6 +141,8 @@ class ChatFile
     public string url = "";
     public string? name;
     public int? size;
+    public string? contentType;
+    public bool hasThumbnail = false;
 }
 
 /// <summary>
@@ -192,7 +194,7 @@ class ChatMessageFormatted : ChatMessage
                     var upload = FileUpload.Get(id);
                     if (upload != null)
                     {
-                        var chatFile = new ChatFile() { url = fil, name = upload.actualName, size = upload.size };
+                        var chatFile = new ChatFile() { url = fil, name = upload.actualName, size = upload.size, contentType = upload.contentType, hasThumbnail = upload.hasThumbnail };
                         string type = upload.contentType;
                         if (type == "image/png" || type == "image/jpeg" || type == "image/gif" || type == "image/bmp")
                         {
@@ -215,11 +217,16 @@ class ChatMessageFormatted : ChatMessage
                             gFiles.Add(chatFile);
                         }
                     }
+                    else
+                    {
+                        if (gFiles == null) gFiles = new();
+                        gFiles.Add(new ChatFile() { url = fi });
+                    }
                 }
                 else
                 {
                     if (gFiles == null) gFiles = new();
-                    gFiles.Add(new ChatFile() { url = fi, name = "File", size = -1 });
+                    gFiles.Add(new ChatFile() { url = fi });
                 }
             }
         }

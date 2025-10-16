@@ -101,15 +101,26 @@ public class HTTPHandler
                                         {
                                             FileUpload uploadData = new()
                                             {
+                                                id = id,
                                                 size = contentLength,
                                                 actualName = HttpUtility.UrlDecode(context.Request.Headers["filename"] ?? id),
                                                 sender = uid,
                                                 contentType = context.Request.Headers["content-type"] ?? ""
                                             };
+                                            
+                                            uploadData.Save();
 
-                                            string? uf = JsonConvert.SerializeObject(uploadData);
-                                            if (uf == null) throw new Exception("???");
-                                            File.WriteAllText("data/upload/" + id, uf);
+                                            FileUpload.uploadCache[id] = uploadData;
+                                        }
+                                        else if (type == "thumb")
+                                        {
+                                            FileUpload? uploadData = FileUpload.Get(id);
+                                            if (uploadData != null && !uploadData.hasThumbnail)
+                                            {
+                                                uploadData.hasThumbnail = true;
+                                                uploadData.Save();
+                                            }
+                                            
                                         }
 
                                         res = JsonConvert.SerializeObject(new FileUploadResponse(id));

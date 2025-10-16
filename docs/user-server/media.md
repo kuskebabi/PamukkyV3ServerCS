@@ -31,12 +31,13 @@ This section talks about "g(Images/Videos/Audio/Files)".
 
 If the file(in the files array) exists in the server, server would automatically categorize their types. "g" stands for "groupped".
 
-Here is a example of what objects inside those arrays will look like:
+Here is a example of what objects inside those arrays will look like, The ones that end with `?` mean they might not exist. **They are not in the actual property name**:
 ```json
 {
-    "sender": "(ID of the user who uploaded this)",
-    "actualName": "(Actual name of the file which is 'filename' in upload call)",
-    "size": "(Size of the file)",
-    "contentType": "(Type of the file)"
+    "url": "(URL of the file, replace %SERVER% to current server url with /)",
+    "name": "(Actual name of the file which is 'filename' in upload call)",
+    "size?": (Size of the file as integer),
+    "contentType?": "(Type of the file)",
+    "hasThumbnail": (True if upload has thumbnail)
 }
 ```
