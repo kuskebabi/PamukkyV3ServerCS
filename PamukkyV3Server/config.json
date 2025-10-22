@@ -1,0 +1,6 @@
+{
+    "httpPort": 4268,
+    "termsOfServiceFile": "tos.txt",
+    "publicUrl": "https://example.com/",
+    "maxFileSize": 24
+}
