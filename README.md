@@ -16,9 +16,9 @@ In this rewrite, I made almost everything classes. So it should be better.
 - `dotnet run [--config file.json]` ([] is optional)
 
 ## Docker
-- cd to the folder which has .csproj
-- Build the docker: `docker build -t pamukky -f Dockerfile .`
-- Run the docker: `docker run -p 4268:4268 pamukky`
+- cd to the folder which has .csproj (./PamukkyV3Server)
+- ~~Build the docker: `docker build -t pamukky -f Dockerfile .`~~ (docker auto compiles it)
+- Run the docker: `docker compose up -d`
 
 ## Config file
 All stuff here is optional.
