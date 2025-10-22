@@ -1,0 +1,27 @@
+services:
+  pamukky:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pamukky-server
+    ports:
+      - "4268:4268"
+    volumes:
+      - ./data:/App/data
+      - ./config.json:/App/config.json:ro
+      - ./tos.txt:/App/tos.txt:ro
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    environment:
+      - ASPNETCORE_URLS=http://+:4268
+    networks:
+      - default
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        #reservations:
+        #  cpus: '0.25'
+        #  memory: 256M
