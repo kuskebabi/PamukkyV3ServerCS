@@ -16,12 +16,44 @@ In this rewrite, I made almost everything classes. So it should be better.
 - `dotnet run [--config file.json]` ([] is optional)
 
 ## Docker
+There's 2 ways to run inside docker:
+### Use prebuilt images (recommended)
+- Create a compose file with ```nano docker-compose.yml```
+```yaml
+services:
+  pamukky:
+    image: ghcr.io/kuskebabi/pamukkyv3server:latest
+    container_name: test-pamukky-server
+    ports:
+      - "4268:4268"
+    volumes:
+      - ./data:/App/data
+#      - ./config.json:/App/config.json:ro
+#      - ./tos.txt:/App/tos.txt:ro
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    environment:
+      - ASPNETCORE_URLS=http://+:4268
+    networks:
+      - default
+    deploy:
+```
+- (Optional) Create a Terms of Service file with ```nano tos.txt```. It will be shown to the users when they connect to your server.
+- (Optional) Create a Config file with ```nano config.json```.
+- Then, run it with ```docker compose up -d```
+Note: If you created your config file or tos file, uncomment these lines in your compose file, under the `volumes` section:
+```yaml
+      - ./config.json:/App/config.json:ro
+      - ./tos.txt:/App/tos.txt:ro
+```
+### Build locally
 - cd to the folder which has .csproj (./PamukkyV3Server)
-- ~~Build the docker: `docker build -t pamukky -f Dockerfile .`~~ (docker auto compiles it)
-- Run the docker: `docker compose up -d`
+- Run the container: `docker compose up -d`
+- If you want to build the container image manually: `docker build -t pamukky -f Dockerfile .`
 
 ## Config file
-All stuff here is optional.
+Everything here is optional.
 
 ```json
 {
