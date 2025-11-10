@@ -1,0 +1,60 @@
+name: .NET
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 9.0.x
+    
+    - name: Restore dependencies
+      run: dotnet restore
+    
+    - name: Build
+      run: dotnet build --no-restore -c Release
+    
+    - name: Test
+      run: dotnet test --no-build --verbosity normal
+    
+    - name: Publish app
+      run: dotnet publish -c Release -o out
+    
+    # Quick smoke test - run the app for a few seconds to make sure it starts
+    - name: Smoke test published app
+      run: |
+        timeout 10s dotnet out/PamukkyV3Server.dll || [ $? -eq 124 ]
+      # Exit code 124 means timeout killed it, which is what we want
+    
+    - name: Upload published app
+      uses: actions/upload-artifact@v4
+      with:
+        name: published-app
+        path: out/
+    
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./PamukkyV3Server/Dockerfile
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository_owner }}/pamukkyv3server:latest
+          ghcr.io/${{ github.repository_owner }}/pamukkyv3server:${{ github.sha }}
