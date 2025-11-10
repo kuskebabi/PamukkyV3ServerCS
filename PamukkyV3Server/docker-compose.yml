@@ -6,7 +6,7 @@ services:
 #      dockerfile: Dockerfile
 #
 #    Comment the next line if you want to do local builds:
-    image: ghcr.io/ahakkoca07/pamukkyv3server:latest
+    image: ghcr.io/kuskebabi/pamukkyv3server:latest
     container_name: pamukky-server
     ports:
       - "4268:4268"
