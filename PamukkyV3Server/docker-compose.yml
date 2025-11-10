@@ -1,8 +1,12 @@
 services:
   pamukky:
-    build:
-      context: .
-      dockerfile: Dockerfile
+#    Uncomment the following lines if you want to do local builds:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#
+#    Comment the next line if you want to do local builds:
+    image: ghcr.io/ahakkoca07/pamukkyv3server:latest
     container_name: pamukky-server
     ports:
       - "4268:4268"
