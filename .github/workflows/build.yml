@@ -37,6 +37,13 @@ jobs:
     - name: Publish linux-arm
       run: dotnet publish -c Release -r linux-arm --self-contained false -o publish/linux-arm
     
+    # Rename binaries to avoid conflicts
+    - name: Rename binaries
+      run: |
+        cp publish/linux-x64/PamukkyV3Server.dll PamukkyV3Server-linux-amd64.dll
+        cp publish/linux-arm64/PamukkyV3Server.dll PamukkyV3Server-linux-arm64.dll
+        cp publish/linux-arm/PamukkyV3Server.dll PamukkyV3Server-linux-armv7.dll
+    
     # Quick smoke test - run the app for a few seconds to make sure it starts
     - name: Smoke test published app
       run: |
@@ -83,8 +90,8 @@ jobs:
         prerelease: true
         generate_release_notes: true
         files: |
-          publish/linux-x64/PamukkyV3Server.dll
-          publish/linux-arm64/PamukkyV3Server.dll
-          publish/linux-arm/PamukkyV3Server.dll
+          PamukkyV3Server-linux-amd64.dll
+          PamukkyV3Server-linux-arm64.dll
+          PamukkyV3Server-linux-armv7.dll
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
