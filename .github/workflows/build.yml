@@ -27,13 +27,20 @@ jobs:
     - name: Test
       run: dotnet test --no-build --verbosity normal
     
-    - name: Publish app
-      run: dotnet publish -c Release -o out
+    # Publish for different platforms
+    - name: Publish linux-x64
+      run: dotnet publish -c Release -r linux-x64 --self-contained false -o publish/linux-x64
+    
+    - name: Publish linux-arm64
+      run: dotnet publish -c Release -r linux-arm64 --self-contained false -o publish/linux-arm64
+    
+    - name: Publish linux-arm
+      run: dotnet publish -c Release -r linux-arm --self-contained false -o publish/linux-arm
     
     # Quick smoke test - run the app for a few seconds to make sure it starts
     - name: Smoke test published app
       run: |
-        timeout 10s dotnet out/PamukkyV3Server.dll || [ $? -eq 124 ]
+        timeout 10s dotnet publish/linux-x64/PamukkyV3Server.dll || [ $? -eq 124 ]
       # Exit code 124 means timeout killed it, which is what we want
     
     - name: Upload published app
@@ -61,11 +68,11 @@ jobs:
         context: .
         file: ./PamukkyV3Server/Dockerfile
         push: true
-        platforms: linux/amd64,linux/arm64, linux/arm/v7
+        platforms: linux/amd64,linux/arm64
         tags: |
           ghcr.io/${{ github.repository_owner }}/pamukkyv3server:latest
           ghcr.io/${{ github.repository_owner }}/pamukkyv3server:${{ github.sha }}
-      
+    
     # Create pre-release with binaries
     - name: Create Pre-Release
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
