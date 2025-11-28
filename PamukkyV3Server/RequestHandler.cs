@@ -35,6 +35,21 @@ public static class RequestHandler
         public int statusCode = 200;
     }
 
+    public class MessageSendRequest
+    {
+        public string? token = null;
+        public string? chatid = null;
+        public string? content = null;
+        public string? replymessageid = null;
+        public List<string>? mentionuids = null;
+        public List<string>? files = null;
+    }
+
+    public class MessageEditRequest : MessageSendRequest
+    {
+        public string? messageid = null;
+    }
+
     /// <summary>
     /// Does a user action.
     /// </summary>
@@ -48,6 +63,10 @@ public static class RequestHandler
         if (action == "tos")
         {
             res = Pamukky.serverTOS;
+        }
+        else if (action == "pamukky")
+        {
+            res = JsonConvert.SerializeObject(Pamukky.PublicServerData.Get());
         }
         else if (action == "signup")
         {
@@ -216,7 +235,8 @@ public static class RequestHandler
                 if (session != null)
                 {
                     res = JsonConvert.SerializeObject(session);
-                }else
+                }
+                else
                 {
                     statuscode = 404;
                     res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
@@ -360,6 +380,51 @@ public static class RequestHandler
                 {
                     statuscode = 404;
                     res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
+                }
+            }
+            else
+            {
+                statuscode = 411;
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
+            }
+        }
+        else if (action == "publictag")
+        { // set or get tag
+            var a = JsonConvert.DeserializeObject<Dictionary<string, string>>(body);
+            if (a != null && a.ContainsKey("tag"))
+            {
+                if (a.ContainsKey("token") && a.ContainsKey("target"))
+                {
+                    string? uid = Pamukky.GetUIDFromToken(a["token"]);
+                    if (uid != null)
+                    {
+                        if (!await PublicTag.IsTagTaken(a["tag"], uid))
+                        {
+                            if (await PublicTag.SetTag(uid, a["tag"], a["target"]))
+                            {
+                                res = JsonConvert.SerializeObject(new ServerResponse("done"));
+                            }
+                            else
+                            {
+                                statuscode = 409;
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "TAGERROR", "Tag is not in correct format."));
+                            }
+                        }
+                        else
+                        {
+                            statuscode = 409;
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "TAGTAKEN", "Tag already taken."));
+                        }
+                    }
+                    else
+                    {
+                        statuscode = 404;
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
+                    }
+                }
+                else
+                {
+                    res = PublicTag.GetTagTarget(a["tag"]) ?? "";
                 }
             }
             else
@@ -761,16 +826,15 @@ public static class RequestHandler
         }
         else if (action == "sendmessage")
         {
-            var a = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+            var a = JsonConvert.DeserializeObject<MessageSendRequest>(body);
             if (a != null)
             {
-                List<string>? files = a.ContainsKey("files") && (a["files"] is JArray) ? ((JArray)a["files"]).ToObject<List<string>>() : null;
-                if (a.ContainsKey("token") && a.ContainsKey("chatid") && ((a.ContainsKey("content") && (a["content"].ToString() ?? "").Length != 0) || (files != null && files.Count > 0)))
+                if (a.chatid != null && ((a.content != null && a.content.Length != 0) || (a.files != null && a.files.Count > 0)))
                 {
-                    string? uid = Pamukky.GetUIDFromToken(a["token"].ToString());
+                    string? uid = Pamukky.GetUIDFromToken(a.token);
                     if (uid != null)
                     {
-                        Chat? chat = await Chat.GetChat(a["chatid"].ToString() ?? "");
+                        Chat? chat = await Chat.GetChat(a.chatid);
                         if (chat != null)
                         {
                             if (chat.CanDo(uid, Chat.ChatAction.Send))
@@ -778,19 +842,14 @@ public static class RequestHandler
                                 ChatMessage msg = new()
                                 {
                                     senderUID = uid,
-                                    content = a["content"].ToString() ?? "",
-                                    replyMessageID = a.ContainsKey("replymessageid") ? a["replymessageid"].ToString() : null,
-                                    files = files
+                                    content = a.content ?? "",
+                                    replyMessageID = a.replymessageid,
+                                    files = a.files
                                 };
 
-                                if (a.ContainsKey("mentionuids") && a["mentionuids"] is JArray)
+                                if (a.mentionuids != null)
                                 {
-                                    List<string>? mentionsList = ((JArray)a["mentionuids"]).ToObject<List<string>>();
-                                    if (mentionsList != null) msg.mentionUIDs = mentionsList;
-                                }
-                                else if (a.ContainsKey("mentionuids") && a["mentionuids"].ToString() == "[CHAT]")
-                                {
-                                    msg.mentionUIDs = new() { "[CHAT]" };
+                                    msg.mentionUIDs = a.mentionuids;
                                 }
                                 else
                                 {
@@ -803,6 +862,54 @@ public static class RequestHandler
                                 {
                                     userstatus.SetTyping(null);
                                 }
+                                res = JsonConvert.SerializeObject(new ServerResponse("done"));
+                            }
+                            else
+                            {
+                                statuscode = 401;
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "You don't have permission to do this action."));
+                            }
+                        }
+                        else
+                        {
+                            statuscode = 404;
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "ECHAT", "Couldn't open chat. Is it valid????"));
+                        }
+                    }
+                    else
+                    {
+                        statuscode = 404;
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "NOUSER", "User doesn't exist."));
+                    }
+                }
+                else
+                {
+                    statuscode = 411;
+                    res = JsonConvert.SerializeObject(new ServerResponse("error"));
+                }
+            }
+            else
+            {
+                statuscode = 411;
+                res = JsonConvert.SerializeObject(new ServerResponse("error"));
+            }
+        }
+        else if (action == "editmessage")
+        {
+            var a = JsonConvert.DeserializeObject<MessageEditRequest>(body);
+            if (a != null)
+            {
+                if (a.chatid != null && a.messageid != null && a.content != null && a.content.Length != 0)
+                {
+                    string? uid = Pamukky.GetUIDFromToken(a.token);
+                    if (uid != null)
+                    {
+                        Chat? chat = await Chat.GetChat(a.chatid);
+                        if (chat != null)
+                        {
+                            if (chat.CanDo(uid, Chat.ChatAction.Edit, a.messageid))
+                            {
+                                chat.EditMessage(a.messageid, a.content ?? "");
                                 res = JsonConvert.SerializeObject(new ServerResponse("done"));
                             }
                             else
@@ -1459,13 +1566,7 @@ public static class RequestHandler
                 {
                     if (gp.CanDo(uid, Group.GroupAction.Read))
                     {
-                        res = JsonConvert.SerializeObject(new GroupInfo()
-                        {
-                            name = gp.name,
-                            info = gp.info,
-                            picture = gp.picture,
-                            isPublic = gp.isPublic
-                        });
+                        res = JsonConvert.SerializeObject(GroupInfo.Generate(gp));
                     }
                     else
                     {
@@ -1492,25 +1593,19 @@ public static class RequestHandler
             {
                 string uid = Pamukky.GetUIDFromToken(a.ContainsKey("token") ? a["token"] : "") ?? "";
 
-                UserProfile? up = await UserProfile.Get(a["id"]);
-                if (up != null)
+                object? target = await Pamukky.GetTargetFromID(a["id"]);
+                if (target is UserProfile)
                 {
-                    res = JsonConvert.SerializeObject(up);
+                    res = JsonConvert.SerializeObject(target);
                 }
-                else
+                else if (target is Group)
                 {
-                    Group? gp = await Group.Get(a["id"]);
+                    Group? gp = target as Group;
                     if (gp != null)
                     {
                         if (gp.CanDo(uid, Group.GroupAction.Read))
                         {
-                            res = JsonConvert.SerializeObject(new GroupInfo()
-                            {
-                                name = gp.name,
-                                info = gp.info,
-                                picture = gp.picture,
-                                isPublic = gp.isPublic
-                            });
+                            res = JsonConvert.SerializeObject(GroupInfo.Generate(gp));
                         }
                         else
                         {
@@ -1523,6 +1618,11 @@ public static class RequestHandler
                         statuscode = 404;
                         res = JsonConvert.SerializeObject(new ServerResponse("error", "NOTFOUND", "Not found."));
                     }
+                }
+                else
+                {
+                    statuscode = 404;
+                    res = JsonConvert.SerializeObject(new ServerResponse("error", "NOTFOUND", "Not found."));
                 }
             }
             else
@@ -1967,7 +2067,8 @@ public static class RequestHandler
                                 {
                                     gp.roles = roles;
                                     gp.notifyEdit(Group.EditType.WithRoles, uid);
-                                }else
+                                }
+                                else
                                 {
                                     gp.notifyEdit(Group.EditType.Basic, uid);
                                 }
@@ -2182,8 +2283,37 @@ public static class RequestHandler
 
                 try
                 {
-                    var httpTask = await Federation.GetHttpClient().GetAsync(fedrequest.serverurl);
-                    Console.WriteLine("federationrequest/pingpong " + await httpTask.Content.ReadAsStringAsync());
+                    var httpTask = await Federation.GetHttpClient().GetAsync(new Uri(new Uri(fedrequest.serverurl), "pamukky"));
+                    var response = await httpTask.Content.ReadAsStringAsync();
+                    Console.WriteLine("pamukky " + response);
+
+                    if (httpTask.StatusCode != System.Net.HttpStatusCode.OK) return new ActionReturn()
+                    {
+                        statusCode = 500,
+                        res = "Server is invalid."
+                    };
+
+                    var info = JsonConvert.DeserializeObject<ConnectionManager.ServerInfo>(response);
+                    if (info == null || !info.isCompatiable()) return new ActionReturn()
+                    {
+                        statusCode = 500,
+                        res = "Server is invalid."
+                    };
+
+                    if (info.publicName.Trim().Length != 0)
+                    {
+                        var url = await ConnectionManager.FindActualServerURL(info.publicName);
+
+                        if (url != fedrequest.serverurl)
+                        {
+                            info.publicName = ConnectionManager.CreateFakeServerName(fedrequest.serverurl);
+                        }
+                    }
+                    else
+                    {
+                        info.publicName = ConnectionManager.CreateFakeServerName(fedrequest.serverurl);
+                    }
+
                     // Valid, allow to federate
                     if (Federation.federations.ContainsKey(fedrequest.serverurl))
                     {
@@ -2192,7 +2322,7 @@ public static class RequestHandler
                     else
                     {
                         string id = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
-                        Federation fed = new(fedrequest.serverurl, id);
+                        Federation fed = new(fedrequest.serverurl, id, info.publicName);
                         fed.startTick();
                         Federation.federations[fedrequest.serverurl] = fed;
                     }
@@ -2202,6 +2332,7 @@ public static class RequestHandler
                         statusCode = 200,
                         res = JsonConvert.SerializeObject(Federation.federations[fedrequest.serverurl])
                     };
+
                 }
                 catch (Exception e)
                 {
@@ -2333,7 +2464,7 @@ public static class RequestHandler
                         if (member.Contains("@"))
                         {
                             string server = member.Split("@")[1];
-                            if (server == fed.serverURL)
+                            if (server == fed.publicName)
                             {
                                 showfullinfo = true;
                                 break;
@@ -2424,7 +2555,7 @@ public static class RequestHandler
                         if (member.Contains("@"))
                         {
                             string server = member.Split("@")[1];
-                            if (server == fed.serverURL)
+                            if (server == fed.publicName)
                             {
                                 showfullinfo = true;
                                 break;
@@ -2453,6 +2584,7 @@ public static class RequestHandler
             }
             else if (request.RequestName == "federationrecieveupdates")
             {
+                Console.WriteLine(request.Input);
                 UpdateRecieveRequest? fedrequest = JsonConvert.DeserializeObject<UpdateRecieveRequest>(request.Input);
                 if (fedrequest == null)
                 {
@@ -2485,11 +2617,11 @@ public static class RequestHandler
                 foreach (var updatehook in fedrequest.updates)
                 {
                     string type = updatehook.Key.Split(":")[0];
-                    string target = updatehook.Key.Split(":")[1];
+                    string target = updatehook.Key.Split(":", 2)[1];
                     if (type == "chat")
                     {
                         string id = target.Split("@")[0];
-                        Chat? chat = await Chat.GetChat(id + "@" + fed.serverURL);
+                        Chat? chat = await Chat.GetChat(id + "@" + fed.publicName);
                         if (chat == null)
                         {
                             chat = await Chat.GetChat(id);
@@ -2518,40 +2650,50 @@ public static class RequestHandler
                                     var update = (JObject)upd.Value;
                                     string eventn = (update["event"] ?? "").ToString() ?? "";
                                     string mid = (update["id"] ?? "").ToString() ?? "";
-                                    if (eventn == "NEWMESSAGE" && chat.CanDo(fed.serverURL, Chat.ChatAction.Send))
+                                    if (eventn == "NEWMESSAGE" && chat.CanDo(fed.publicName, Chat.ChatAction.Send))
                                     {
                                         if ((update["senderUID"] ?? "").ToString() == "0")
                                         {
                                             continue; //Don't allow Pamuk messages from other federations, because they are probably echoes.
                                         }
 
-                                        // IDK how else to do this...
-                                        string? forwardedFrom = null;
-                                        if (update.ContainsKey("forwardedFromUID"))
+                                        string sender = fed.FixUserID((update["senderUID"] ?? "").ToString());
+
+                                        if (chat.CanDo(sender, Chat.ChatAction.Send))
                                         {
-                                            if (update["forwardedFromUID"] != null)
+
+                                            // IDK how else to do this...
+                                            string? forwardedFrom = null;
+                                            if (update.ContainsKey("forwardedFromUID"))
                                             {
-                                                forwardedFrom = (update["forwardedFromUID"] ?? "").ToString();
-                                                if (forwardedFrom == "")
+                                                if (update["forwardedFromUID"] != null)
                                                 {
-                                                    forwardedFrom = null;
+                                                    forwardedFrom = (update["forwardedFromUID"] ?? "").ToString();
+                                                    if (forwardedFrom == "")
+                                                    {
+                                                        forwardedFrom = null;
+                                                    }
                                                 }
                                             }
-                                        }
 
-                                        ChatMessage msg = new ChatMessage()
+                                            ChatMessage msg = new ChatMessage()
+                                            {
+                                                senderUID = sender,
+                                                content = (update["content"] ?? "").ToString() ?? "",
+                                                sendTime = (DateTime?)update["sendTime"] ?? DateTime.Now,
+                                                replyMessageID = update.ContainsKey("replyMessageID") ? update["replyMessageID"] == null ? null : (update["replyMessageID"] ?? "").ToString() : null,
+                                                forwardedFromUID = forwardedFrom,
+                                                files = update.ContainsKey("files") && (update["files"] is JArray) ? ((JArray?)update["files"] ?? new JArray()).ToObject<List<string>>() : null,
+                                                isPinned = update["isPinned"] != null ? (bool?)update["isPinned"] ?? false : false,
+                                                reactions = update.ContainsKey("reactions") && (update["reactions"] is JObject) ? ((JObject?)update["reactions"] ?? new JObject()).ToObject<MessageReactions>() ?? new MessageReactions() : new MessageReactions(),
+                                            };
+                                            fed.FixMessage(msg);
+                                            chat.SendMessage(msg, true, mid);
+                                        }
+                                        else
                                         {
-                                            senderUID = (update["senderUID"] ?? "").ToString() ?? "",
-                                            content = (update["content"] ?? "").ToString() ?? "",
-                                            sendTime = (DateTime?)update["sendTime"] ?? DateTime.Now,
-                                            replyMessageID = update.ContainsKey("replyMessageID") ? update["replyMessageID"] == null ? null : (update["replyMessageID"] ?? "").ToString() : null,
-                                            forwardedFromUID = forwardedFrom,
-                                            files = update.ContainsKey("files") && (update["files"] is JArray) ? ((JArray?)update["files"] ?? new JArray()).ToObject<List<string>>() : null,
-                                            isPinned = update["isPinned"] != null ? (bool?)update["isPinned"] ?? false : false,
-                                            reactions = update.ContainsKey("reactions") && (update["reactions"] is JObject) ? ((JObject?)update["reactions"] ?? new JObject()).ToObject<MessageReactions>() ?? new MessageReactions() : new MessageReactions(),
-                                        };
-                                        fed.FixMessage(msg);
-                                        chat.SendMessage(msg, true, mid);
+                                            Console.WriteLine(sender + " Remote server thinks user has access to something. idk federation is wip expect this");
+                                        }
                                     }
                                     else if (eventn.EndsWith("REACTED"))
                                     {
@@ -2560,23 +2702,39 @@ public static class RequestHandler
                                             if (update["senderUID"] != null && update["reaction"] != null)
                                             {
                                                 string uid = fed.FixUserID((update["senderUID"] ?? "").ToString() ?? "");
-                                                if (chat.CanDo(uid, Chat.ChatAction.React))
+                                                if (chat.CanDo(uid, Chat.ChatAction.React, mid))
+                                                {
                                                     chat.ReactMessage(mid, uid, (update["reaction"] ?? "").ToString() ?? "", eventn == "REACTED", update.ContainsKey("sendTime") ? (DateTime?)update["sendTime"] : null);
+                                                }
+                                                else
+                                                {
+                                                    Console.WriteLine(uid + " Remote server thinks user has access to something. idk federation is wip expect this");
+                                                }
+                                            }
+                                            else
+                                            {
+                                                Console.WriteLine("smth nul here!!!");
+                                                Console.WriteLine(update["senderUID"]);
                                             }
                                         }
+                                        else
+                                        {
+                                            Console.WriteLine("smth not here!!!");
+                                            Console.WriteLine(update.ContainsKey("senderUID"));
+                                        }
                                     }
-                                    else if (eventn == "DELETED" && chat.CanDo(fed.serverURL, Chat.ChatAction.Delete, mid))
+                                    else if (eventn == "DELETED" && chat.CanDo(fed.publicName, Chat.ChatAction.Delete, mid))
                                     {
                                         chat.DeleteMessage(mid);
                                     }
-                                    else if (eventn == "PINNED" && chat.CanDo(fed.serverURL, Chat.ChatAction.Pin, mid))
+                                    else if (eventn == "PINNED" && chat.CanDo(fed.publicName, Chat.ChatAction.Pin, mid))
                                     {
                                         if (update.ContainsKey("userID") && update["userID"] != null)
                                         {
                                             chat.PinMessage(mid, true, update["userID"]?.ToString());
                                         }
                                     }
-                                    else if (eventn == "UNPINNED" && chat.CanDo(fed.serverURL, Chat.ChatAction.Pin, mid))
+                                    else if (eventn == "UNPINNED" && chat.CanDo(fed.publicName, Chat.ChatAction.Pin, mid))
                                     {
                                         if (update.ContainsKey("userID") && update["userID"] != null)
                                         {
@@ -2587,11 +2745,23 @@ public static class RequestHandler
                                     {
                                         if (update.ContainsKey("userID") && update.ContainsKey("readTime"))
                                         {
-                                            if (update["userID"] != null && update["readTime"] != null)
+                                            if (update["userID"] != null)
                                             {
                                                 string uid = fed.FixUserID((update["userID"] ?? "").ToString() ?? "");
-                                                if (chat.CanDo(uid, Chat.ChatAction.React))
+                                                if (chat.CanDo(uid, Chat.ChatAction.React, mid))
                                                     chat.ReadMessage(mid, uid, (DateTime?)update["readTime"]);
+                                            }
+                                        }
+                                    }
+                                    else if (eventn == "EDITED")
+                                    {
+                                        if (update.ContainsKey("content"))
+                                        {
+                                            string? content = update["content"]?.ToString();
+                                            if (content != null)
+                                            {
+                                                if (chat.CanDo(fed.publicName, Chat.ChatAction.Edit, mid))
+                                                    chat.EditMessage(mid, content, (DateTime?)update["editTime"]);
                                             }
                                         }
                                     }
@@ -2602,7 +2772,7 @@ public static class RequestHandler
                     else if (type == "user")
                     {
                         string id = target.Split("@")[0];
-                        UserProfile? profile = await UserProfile.Get(id + "@" + fed.serverURL);
+                        UserProfile? profile = await UserProfile.Get(id + "@" + fed.publicName);
                         if (profile != null)
                         {
                             var updates = updatehook.Value;
@@ -2629,12 +2799,22 @@ public static class RequestHandler
                                     profile.Save();
                                 }
                             }
+
+                            if (updates.ContainsKey("publicTagChange"))
+                            {
+                                var tag = updates["publicTagChange"]?.ToString();
+                                if (tag != null && tag != profile.publicTag)
+                                {
+                                    profile.publicTag = tag;
+                                    profile.NotifyPublicTagChange();
+                                }
+                            }
                         }
                     }
                     else if (type == "group")
                     {
                         string id = target.Split("@")[0];
-                        Group? group = await Group.Get(id + "@" + fed.serverURL);
+                        Group? group = await Group.Get(id + "@" + fed.publicName);
                         if (group == null)
                         {
                             group = await Group.Get(id);
@@ -2650,19 +2830,24 @@ public static class RequestHandler
                                     // Get the user and fix id
                                     string user = fed.FixUserID(upd.Key.Split("|")[1]);
                                     string role = upd.Value.ToString() ?? "";
+                                    string userServer = "";
+                                    if (user.Contains("@"))
+                                    {
+                                        userServer = user.Split("@")[1];
+                                    }
 
                                     if (role == "")
                                     {
-                                        if (group.CanDo(fed.serverURL, Group.GroupAction.Ban)) group.UnbanUser(user);
-                                        if (group.CanDo(fed.serverURL, Group.GroupAction.Kick)) await group.RemoveUser(user);
+                                        if (group.CanDo(fed.publicName, Group.GroupAction.Ban)) group.UnbanUser(user);
+                                        if (userServer == fed.publicName || group.CanDo(fed.publicName, Group.GroupAction.Kick)) await group.RemoveUser(user);
                                     }
-                                    else if (role == "BANNED" && group.CanDo(fed.serverURL, Group.GroupAction.Ban))
+                                    else if (role == "BANNED" && group.CanDo(fed.publicName, Group.GroupAction.Ban))
                                     {
                                         await group.BanUser(user);
                                     }
                                     else
                                     {
-                                        if (group.members.ContainsKey(user) && group.CanDo(fed.serverURL, Group.GroupAction.EditUser))
+                                        if (group.members.ContainsKey(user) && group.CanDo(fed.publicName, Group.GroupAction.EditUser))
                                         {
                                             group.SetUserRole(user, role);
                                         }
@@ -2676,9 +2861,9 @@ public static class RequestHandler
                                 }
                                 else
                                 {
-                                    var update = (JObject)upd.Value;
-                                    if (upd.Key == "edit" && group.CanDo(fed.serverURL, Group.GroupAction.EditGroup))
+                                    if (upd.Key == "edit" && group.CanDo(fed.publicName, Group.GroupAction.EditGroup))
                                     {
+                                        var update = (JObject)upd.Value;
                                         if (update.ContainsKey("name") && update.ContainsKey("info") && update.ContainsKey("picture") && update.ContainsKey("isPublic") && update.ContainsKey("userID"))
                                         {
                                             string userID = (update["userID"] ?? "").ToString();
@@ -2735,6 +2920,15 @@ public static class RequestHandler
 
                                                 group.Save();
                                             }
+                                        }
+                                    }
+                                    else if (upd.Key == "publicTagChange" && group.CanDo(fed.publicName, Group.GroupAction.EditGroup))
+                                    {
+                                        var tag = upd.Value?.ToString();
+                                        if (tag != null && tag != group.publicTag)
+                                        {
+                                            group.publicTag = tag;
+                                            group.NotifyPublicTagChange();
                                         }
                                     }
                                 }

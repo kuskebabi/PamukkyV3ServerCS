@@ -25,6 +25,7 @@ class Group
     public string name = "";
     public string picture = "";
     public string info = "";
+    public string? publicTag = null;
     public string creatorUID = "";
     public DateTime creationTime = DateTime.Now;
     public bool isPublic = false; //Can the group be read without joining?
@@ -79,16 +80,17 @@ class Group
                     if (g is Group)
                     {
                         var group = (Group)g;
+                        groupsCache[group.groupID] = group;
                         groupsCache[gid] = group;
                         group.Save(); // Save the group from the federation in case it goes offline after some time.
 
-                        loadingGroups.Remove(gid);
+                        try { loadingGroups.Remove(gid); } catch { }
 
                         return group;
                     }
                     else if (g is bool)
                     {
-                        loadingGroups.Remove(gid);
+                        try { loadingGroups.Remove(gid); } catch { }
                         if ((bool)g)
                         {
                             return new Group() { groupID = gid }; //make a interface enough to join it.
@@ -109,11 +111,22 @@ class Group
                 g.groupID = gid;
                 groupsCache[gid] = g;
             }
-            loadingGroups.Remove(gid);
+            try { loadingGroups.Remove(gid); } catch { }
             return g;
         }
-        loadingGroups.Remove(gid);
+        try { loadingGroups.Remove(gid); } catch { }
         return null;
+    }
+
+    /// <summary>
+    /// Sends update about public tag change
+    /// </summary>
+    public void NotifyPublicTagChange()
+    {
+        foreach (var hook in updateHooks)
+        {
+            hook["publicTagChange"] = publicTag;
+        }
     }
 
     #region User management
@@ -360,7 +373,8 @@ class Group
             if (action == GroupAction.EditUser) return role.AllowEditingUsers && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
             if (action == GroupAction.Kick) return role.AllowKicking && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
             if (action == GroupAction.Ban) return role.AllowBanning && role.AdminOrder <= targetUserRole.AdminOrder && user != target;
-        }else
+        }
+        else
         {
             if (action == GroupAction.EditUser) return role.AllowEditingUsers;
             if (action == GroupAction.Kick) return role.AllowKicking;
@@ -436,9 +450,10 @@ class Group
         }
     }
 
-    public bool validateNewRoles(Dictionary<string, GroupRole> newroles) {
+    public bool validateNewRoles(Dictionary<string, GroupRole> newroles)
+    {
         bool diff = roles.Count != newroles.Count;
-        
+
         foreach (var role in newroles)
         {
             if (role.Key == "BANNED" || role.Key.Trim() == "")
@@ -473,7 +488,7 @@ class Group
                 return false;
             }
         }
-        
+
         return diff;
     }
 
@@ -607,7 +622,25 @@ class GroupInfo
     public string name = "";
     public string picture = "";
     public string info = "";
+    public string? publicTag = null;
     public bool isPublic = false;
+
+    /// <summary>
+    /// Generates GroupInfo from group.
+    /// </summary>
+    /// <param name="group">Group object</param>
+    /// <returns></returns>
+    public static GroupInfo Generate(Group group)
+    {
+        return new GroupInfo()
+        {
+            name = group.name,
+            info = group.info,
+            picture = group.picture,
+            publicTag = group.publicTag,
+            isPublic = group.isPublic
+        };
+    }
 }
 
 /// <summary>

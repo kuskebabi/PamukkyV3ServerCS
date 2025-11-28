@@ -199,6 +199,7 @@ Updates from a user hook could be like these:
 
 * Update name being `online`, sending online status as string.
 * Update name being `profileUpdate`, sending new user profile like `getuser` API.
+* Update name being `publicTagChange`, sending user's new public tag as string.
 
 # Chats list hook
 Updates from a chatslist hook are usually like this:

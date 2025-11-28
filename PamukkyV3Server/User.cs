@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime;
 using System.Runtime.Serialization;
 using Newtonsoft.Json;
 
@@ -357,6 +358,7 @@ class LastUserStatus
 class UserProfile
 {
     public static ConcurrentDictionary<string, UserProfile> userProfileCache = new();
+
     [JsonIgnore]
     public string userID = "";
     [JsonIgnore]
@@ -368,6 +370,8 @@ class UserProfile
     public string name = "User";
     public string picture = "";
     public string bio = "Hello!";
+    public string? publicTag = null;
+
     private DateTime? lastOnlineTime;
 
     #region Backwards compatibility
@@ -527,8 +531,7 @@ class UserProfile
                 UserProfile? up = await connection.getUser(id);
                 if (up != null)
                 {
-                    up.userID = userID;
-                    userProfileCache[userID] = up;
+                    userProfileCache[up.userID] = up;
                     up.Save(); // Save the user from the federation in case it goes offline after some time.
                     loadingProfiles.Remove(userID);
                     return up;
@@ -576,6 +579,17 @@ class UserProfile
     }
 
     /// <summary>
+    /// Sends update about public tag change
+    /// </summary>
+    public void NotifyPublicTagChange()
+    {
+        foreach (var hook in updateHooks)
+        {
+            hook["publicTagChange"] = publicTag;
+        }
+    }
+
+    /// <summary>
     /// Saves the profile.
     /// </summary>
     public void Save()
@@ -597,7 +611,7 @@ class UserProfile
     {
         if (userID == "0") return;
         Directory.CreateDirectory("data/info/" + userID);
-        
+
         if (lastStatus.lastOnline != lastOnlineTime && lastOnlineTime != null)
         {
             lastStatus.lastOnline = (DateTime)lastOnlineTime;

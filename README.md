@@ -60,8 +60,10 @@ Everything here is optional.
     "httpPort": 4268,
     "httpsPort": 4280,
     "termsOfServiceFile": "/home/user/pamukkytos.txt",
-    "publicUrl": "https://...:4280/",
-    "maxFileSize": 24,
+    "publicUrl": "https://.../",
+    "publicName": "...", // Or null
+    "maxFileUploadSize": 24,
+    "autoSaveInterval": 300000,
     "systemProfile": {
         "name": "Pamuk but weird birb",
         "picture": "",
@@ -74,7 +76,9 @@ Everything here is optional.
 * `httpPort` Port for https. null for none.
 * `termsOfServiceFile` File path that has server terms of service. null for none.
 * `publicUrl` Public URL of the server for federation. null for none.
-* `maxFileSize` Max file size for uploads in megabytes.
+* `publicName` Public Name(short url) of the server for federation. null for none.
+* `maxFileUploadSize` Max file size for uploads in megabytes.
+* `autoSaveInterval` Sets interval of auto-save. Default is 300000.
 
 
 # Status

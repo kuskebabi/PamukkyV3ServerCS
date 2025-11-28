@@ -16,6 +16,36 @@ internal class Pamukky
     public static string serverTOS = "No TOS.";
 
     /// <summary>
+    /// Gives public server data of this server.
+    /// </summary>
+    public class PublicServerData : ConnectionManager.ServerInfo
+    {
+        public static PublicServerData? instance;
+        public long maxFileUploadSize
+        {
+            get
+            {
+                return config.maxFileUploadSize;
+            }
+        }
+
+        public static PublicServerData Get()
+        {
+            if (instance == null)
+            {
+                instance = new()
+                {
+                    isPamukky = true,
+                    pamukkyType = 3,
+                    version = 0,
+                    publicName = config.publicName
+                };
+            }
+            return instance;
+        }
+    }
+
+    /// <summary>
     /// Server config structure
     /// </summary>
     public class ServerConfig
@@ -37,9 +67,17 @@ internal class Pamukky
         /// </summary>
         public string? publicUrl = null;
         /// <summary>
-        /// Max file size for uploads. default is 24 megabytes.
+        /// Public name(Short url) of the server that other servers/users will/should use
         /// </summary>
-        public long maxFileSize = 24;
+        public string publicName = "";
+        /// <summary>
+        /// Max file size for uploads in megabytes. Default is 24 megabytes.
+        /// </summary>
+        public long maxFileUploadSize = 24;
+        /// <summary>
+        /// Sets interval of auto-save. Default is 300000.
+        /// </summary>
+        public int autoSaveInterval = 300000;
         /// <summary>
         /// System profile.
         /// </summary>
@@ -63,9 +101,38 @@ internal class Pamukky
         return session.userID;
     }
 
+    /// <summary>
+    /// Gets Group or UserProfile from ID.
+    /// </summary>
+    /// <param name="id"></param>
+    /// <returns>Group or UserProfile if exists, null if it doesn't exist.</returns>
+    public static async Task<object?> GetTargetFromID(string id)
+    {
+        UserProfile? up = await UserProfile.Get(id);
+        if (up != null)
+        {
+            return up;
+        }
+        Group? gp = await Group.Get(id);
+        if (gp != null)
+        {
+            return gp;
+        }
+
+        return null;
+    }
+
+
+    /// <summary>
+    /// Saves data to disk.
+    /// </summary>
     public static void SaveData()
     {
         Console.WriteLine("Saving Data...");
+        Console.WriteLine("Saving Known servers...");
+        Federation.SaveKnownServersList();
+        Console.WriteLine("Saving Tags...");
+        PublicTag.Save();
         Console.WriteLine("Saving Chats...");
         foreach (var c in Chat.chatsCache)
         { // Save chats in memory to files
@@ -94,11 +161,14 @@ internal class Pamukky
         }
     }
 
-    static void AutoSaveTick() {
-        Task.Delay(300000).ContinueWith((task) => { //save after 5 mins and recall
-            SaveData();
-            AutoSaveTick();
-        });
+    static void AutoSaveTick()
+    {
+        if (config.autoSaveInterval > 0)
+            Task.Delay(config.autoSaveInterval).ContinueWith((task) =>
+            { //save after 5 mins and recall
+                SaveData();
+                AutoSaveTick();
+            });
     }
 
     public static bool exit = false;
@@ -150,12 +220,23 @@ internal class Pamukky
         config.systemProfile.userID = "0";
         UserProfile.userProfileCache["0"] = config.systemProfile;
 
-        //Create save folders
+        if (config.publicName.Trim().Length == 0)
+        {
+            config.publicName = ConnectionManager.CreateFakeServerName(Federation.thisServerURL ?? "");
+        }
+
+        // Create save folders
         Directory.CreateDirectory("data");
         Directory.CreateDirectory("data/auth");
         Directory.CreateDirectory("data/chat");
         Directory.CreateDirectory("data/upload");
         Directory.CreateDirectory("data/info");
+
+        // Load known servers
+        Federation.LoadKnownServersList();
+
+        // Load public tags
+        PublicTag.Load();
 
         // Start a http listener
         new HTTPHandler().Start(HTTPport, HTTPSport);

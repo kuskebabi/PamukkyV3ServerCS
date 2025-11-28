@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.Tracing;
 using Newtonsoft.Json;
 
 namespace PamukkyV3;
@@ -29,6 +30,10 @@ class Federation
     [JsonIgnore]
     public static ConcurrentDictionary<string, Federation> federations = new();
     [JsonIgnore]
+    public static ConcurrentDictionary<string, ConnectionManager.Server> knownServers = new();
+    [JsonIgnore]
+    public static bool isKnownServersUpdated = false;
+    [JsonIgnore]
     static HttpClient? federationClient = null;
     [JsonIgnore]
     public static string thisServerURL = "http://localhost:4268/";
@@ -45,6 +50,7 @@ class Federation
 
     public string serverURL;
     public string id;
+    public string publicName;
     /// <summary>
     /// Fires when federation is (re)connected.
     /// </summary>
@@ -64,15 +70,41 @@ class Federation
         return federationClient;
     }
 
-    public Federation(string server, string fid)
+    /// <summary>
+    /// Loads known federations list
+    /// </summary>
+    public static void LoadKnownServersList()
+    {
+        if (!File.Exists("data/known_federations")) return;
+        var servers = JsonConvert.DeserializeObject<ConcurrentDictionary<string, ConnectionManager.Server>>(File.ReadAllText("data/known_servers"));
+
+        if (servers == null) return;
+
+        isKnownServersUpdated = false;
+        knownServers = servers;
+    }
+
+    /// <summary>
+    /// Saves known federations list
+    /// </summary>
+    public static void SaveKnownServersList()
+    {
+        if (!isKnownServersUpdated) return;
+        isKnownServersUpdated = false;
+        var save = JsonConvert.SerializeObject(knownServers);
+        File.WriteAllTextAsync("data/known_servers", save);
+    }
+
+    public Federation(string server, string fid, string name)
     {
         serverURL = server;
         id = fid;
+        publicName = name;
     }
 
     public void startTick()
     {
-        cachedUpdates = new() { token = serverURL };
+        cachedUpdates = new() { token = publicName };
         PushUpdates();
     }
 
@@ -184,19 +216,53 @@ class Federation
 
         connectingFederations.Add(server);
 
+        var foundserver = await ConnectionManager.FindServer(server);
+        if (foundserver == null)
+        {
+            if (!knownServers.ContainsKey(server))
+            {
+                connectingFederations.Remove(server);
+                return null;
+            }
+
+            foundserver = knownServers[server];
+        }
+
+        if (!knownServers.ContainsKey(server))
+        {
+            knownServers[server] = foundserver;
+
+            isKnownServersUpdated = true;
+        }
+
+        if (federations.ContainsKey(foundserver.serverURL)) // Don't attempt to connect if already connected, add federation to dictionary and return the federation.
+        {
+            var s = federations[foundserver.serverURL];
+            federations[server] = s;
+            connectingFederations.Remove(server);
+
+            return s;
+        }
+
         StringContent sc = new(JsonConvert.SerializeObject(new FederationRequest() { serverurl = thisServerURL }));
         try
         {
-            var res = await GetHttpClient().PostAsync(new Uri(new Uri(server), "federationrequest"), sc);
-            string resbody = await res.Content.ReadAsStringAsync();
-            Console.WriteLine(resbody);
-            var fed = JsonConvert.DeserializeObject<Federation>(resbody);
-            if (fed == null) return null;
-            Federation cf = new(server, fed.id);
-            federations[server] = cf;
-            cf.startTick();
-            connectingFederations.Remove(server);
-            return cf;
+            var res = await GetHttpClient().PostAsync(new Uri(new Uri(foundserver.serverURL), "federationrequest"), sc);
+            if (res.StatusCode == System.Net.HttpStatusCode.OK)
+            {
+                string resbody = await res.Content.ReadAsStringAsync();
+                Console.WriteLine(resbody);
+                var fed = JsonConvert.DeserializeObject<Federation>(resbody);
+                if (fed == null) return null;
+                Federation cf = new(foundserver.serverURL, fed.id, foundserver.publicName);
+                federations[foundserver.serverURL] = cf;
+                federations[foundserver.publicName] = cf;
+                federations[server] = cf;
+                cf.startTick();
+                connectingFederations.Remove(server);
+                return cf;
+            }
+            return null;
         }
         catch (Exception e)
         {
@@ -204,7 +270,7 @@ class Federation
             connectingFederations.Remove(server);
             if (dummy)
             {
-                Federation cf = new(server, "") { connected = false };
+                Federation cf = new(foundserver.serverURL, "", foundserver.publicName) { connected = false };
                 cf.startTick();
                 federations[server] = cf; // Probably need to find a better way.
                 return cf;
@@ -227,7 +293,7 @@ class Federation
         if (fed.id != request["id"].ToString()) return null;
         return fed;
     }
-    
+
     /// <summary>
     /// Gets a federation from request dictionary if it's valid.
     /// </summary>
@@ -278,6 +344,8 @@ class Federation
             }
             return connected ?? false;
         }
+
+        Console.WriteLine("Reconnecting to " + serverURL + " " + publicName);
         StringContent sc = new(JsonConvert.SerializeObject(new FederationRequest() { serverurl = thisServerURL }));
         try
         {
@@ -339,7 +407,7 @@ class Federation
             {
                 Group? group = JsonConvert.DeserializeObject<Group>(resbody);
                 if (group == null) return null;
-                group.groupID = groupID + "@" + serverURL;
+                group.groupID = groupID + "@" + publicName;
                 FixGroup(group);
                 cachedUpdates.AddHook(group);
                 return group;
@@ -380,7 +448,7 @@ class Federation
             {
                 Chat? chat = JsonConvert.DeserializeObject<Chat>(resbody);
                 if (chat == null) return null;
-                chat.chatID = chatID;
+                chat.chatID = chatID + "@" + publicName;
                 foreach (ChatMessage msg in chat.Values)
                 {
                     FixMessage(msg);
@@ -422,6 +490,7 @@ class Federation
             {
                 UserProfile? profile = JsonConvert.DeserializeObject<UserProfile>(resbody);
                 if (profile == null) return null;
+                profile.userID = userID + "@" + publicName;
                 FixUserProfile(profile);
                 return profile;
             }
@@ -491,7 +560,7 @@ class Federation
     /// <summary>
     /// Makes user ID point to correct server
     /// </summary>
-    /// <param name="userID"></param>
+    /// <param name="userID">ID of the user</param>
     /// <returns></returns>
     public string FixUserID(string userID)
     {
@@ -506,16 +575,16 @@ class Federation
         else
         {
             user = userID;
-            userserver = serverURL;
+            userserver = publicName;
         }
         if (user != "0")
         {
             // remake(or reuse) the user string depending on the server.
-            if (userserver == serverURL)
+            if (userserver == publicName)
             {
-                return user + "@" + userserver;
+                return user + "@" + publicName;
             }
-            else if (userserver == thisServerURL)
+            else if (userserver == Pamukky.config.publicName)
             {
                 return user;
             }
@@ -524,7 +593,7 @@ class Federation
     }
 
     /// <summary>
-    /// Fixes user profile (assuming it was from a remote server=
+    /// Fixes user profile (assuming it was from a remote server)
     /// </summary>
     /// <param name="profile">UserProfile to fix</param>
     public void FixUserProfile(UserProfile profile)
@@ -541,6 +610,7 @@ class Federation
     {
         // fix picture
         group.picture = group.picture.Replace("%SERVER%", serverURL);
+
         // remake the members list.
         ConcurrentDictionary<string, GroupMember> members = new();
         foreach (var member in group.members)

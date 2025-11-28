@@ -7,7 +7,7 @@ namespace PamukkyV3;
 
 public static class Helpers
 {
-    // Date serialization, do not change unless you apply it to clients too.
+    // DEPRECATED Date serialization, do not change unless you apply it to clients too.
     public const string DateTimeFormat = "MM dd yyyy, HH:mm zzz";
 
     /// <summary>

@@ -81,9 +81,21 @@ Sends a message.
     "chatid": "(ID of the chat)",
     "content": "(Content of the message)",
     // Optional
-    "mentionuids": ["(User ID or '[CHAT]')", ...], // Can be also a string if it's "[CHAT]" mention, which mentions everyone
+    "mentionuids": ["(User ID or '[CHAT]')", ...], // if it has a "[CHAT]" mention, it mentions everyone
     "replymessageid": "(ID of the message to reply)",
     "files": ["(File url)", ...]
+}
+```
+## editmessage
+Edits a message.
+### Usage
+(As body)
+```json
+{
+    "token": "(Token of the session)",
+    "chatid": "(ID of the chat)",
+    "messageid": "(Message ID)",
+    "content": "(Content of the message)",
 }
 ```
 
@@ -247,10 +259,16 @@ Gets or waits for new typing updates. Different than format in "#Chat updater/ho
 Updates from a chat hook could be like these:
 
 * (HOOK ONLY) Update name being like `TYPING|(User ID)`, if value is `true`, the user (with the id) is typing, else they aren't.
-* If it's a ID instead, they are normal chat updates. These updates contain a `id` key which points to the message (with ID) and `event` key which is the event type;
+* If it's a ID instead, they are normal chat updates. **These updates contain a `id` key which points to the message (with ID) and `event` key which is the event type**;
 
 ## NEWMESSAGE event
 Fires when a new message is sent. It's just a `{Message Object}` with normal event stuff like `id` (which is ID of the new message) and `event`.
+
+## EDITED event
+Fired when a message is edited.
+
+* `content` is new content of the message.
+* `editTime` is the time when the message was edited.
 
 ## READ event
 Fired when a message is read by a user. In future this event might only have the message id.

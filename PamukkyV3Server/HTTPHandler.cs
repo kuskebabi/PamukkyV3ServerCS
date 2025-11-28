@@ -60,7 +60,7 @@ public class HTTPHandler
                             int contentLength = int.Parse(contentLengthString);
                             if (contentLength != 0)
                             {
-                                if (contentLength <= Pamukky.config.maxFileSize * 1048576)
+                                if (contentLength <= Pamukky.config.maxFileUploadSize * 1048576)
                                 {
                                     string type = context.Request.Headers["type"] == "thumb" ? "thumb" : "file";
                                     string id = "";
