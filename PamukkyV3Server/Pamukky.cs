@@ -79,6 +79,10 @@ internal class Pamukky
         /// </summary>
         public int autoSaveInterval = 300000;
         /// <summary>
+        /// Sets if new a new account can be created by users
+        /// </summary>
+        public bool allowSignUps = true;
+        /// <summary>
         /// System profile.
         /// </summary>
         public UserProfile systemProfile = new()
@@ -196,7 +200,7 @@ internal class Pamukky
             {
                 switch (argMode)
                 {
-                    case "config": // HTTPS port, doesn't quite work. you SHOULD(do NOT make your server in http.) use some forwarder to make http to https.
+                    case "config": // Config file
                         configPath = arg;
                         break;
                 }

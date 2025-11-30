@@ -61,9 +61,10 @@ Everything here is optional.
     "httpsPort": 4280,
     "termsOfServiceFile": "/home/user/pamukkytos.txt",
     "publicUrl": "https://.../",
-    "publicName": "...", // Or null
+    "publicName": "...",
     "maxFileUploadSize": 24,
     "autoSaveInterval": 300000,
+    "allowSignUps": true,
     "systemProfile": {
         "name": "Pamuk but weird birb",
         "picture": "",
@@ -78,7 +79,8 @@ Everything here is optional.
 * `publicUrl` Public URL of the server for federation. null for none.
 * `publicName` Public Name(short url) of the server for federation. null for none.
 * `maxFileUploadSize` Max file size for uploads in megabytes.
-* `autoSaveInterval` Sets interval of auto-save. Default is 300000.
+* `autoSaveInterval` Sets interval of auto-save. Default is 300000. 0 or smaller to disable auto-save.
+* `allowSignUps` Sets if new a new account can be created by users.
 
 
 # Status

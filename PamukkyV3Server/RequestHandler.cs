@@ -70,81 +70,87 @@ public static class RequestHandler
         }
         else if (action == "signup")
         {
-            var a = JsonConvert.DeserializeObject<UserLoginRequest>(body);
-            if (a != null)
+            if (!Pamukky.config.allowSignUps)
             {
-                a.EMail = a.EMail.Trim();
-                if (!File.Exists("data/auth/" + a.EMail))
+                statuscode = 403;
+                res = JsonConvert.SerializeObject(new ServerResponse("error", "ADENIED", "Not allowed"));
+            }else {
+                var a = JsonConvert.DeserializeObject<UserLoginRequest>(body);
+                if (a != null)
                 {
-                    // Check the email format. TODO: maybe improve
-                    if (a.EMail != "" && a.EMail.Contains("@") && a.EMail.Contains(".") && !a.EMail.Contains(" "))
+                    a.EMail = a.EMail.Trim();
+                    if (!File.Exists("data/auth/" + a.EMail))
                     {
-                        // IDK, why limit password characters? I mean also just get creative and dont make your password "      "
-                        if (a.Password.Trim() != "" && a.Password.Length >= 6)
+                        // Check the email format. TODO: maybe improve
+                        if (a.EMail != "" && a.EMail.Contains("@") && a.EMail.Contains(".") && !a.EMail.Contains(" "))
                         {
-                            string uid = "";
-                            do
+                            // IDK, why limit password characters? I mean also just get creative and dont make your password "      "
+                            if (a.Password.Trim() != "" && a.Password.Length >= 6)
                             {
-                                uid = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
-                            }
-                            while (Directory.Exists("data/info/" + uid));
+                                string uid = "";
+                                do
+                                {
+                                    uid = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
+                                }
+                                while (Directory.Exists("data/info/" + uid));
 
-                            UserLogin loginCredentials = new()
-                            {
-                                EMail = a.EMail,
-                                Password = Helpers.HashPassword(a.Password, uid),
-                                userID = uid
-                            };
-
-                            File.WriteAllText("data/auth/" + a.EMail, JsonConvert.SerializeObject(loginCredentials));
-
-                            UserProfile up = new() { name = a.EMail.Split("@")[0].Split(".")[0] };
-                            UserProfile.Create(uid, up);
-
-                            UserChatsList? chats = await UserChatsList.Get(uid); //get new user's chats list
-                            if (chats != null)
-                            {
-                                ChatItem savedmessages = new()
-                                { //automatically add saved messages for the user.
-                                    user = uid,
-                                    type = "user",
-                                    chatid = uid + "-" + uid
+                                UserLogin loginCredentials = new()
+                                {
+                                    EMail = a.EMail,
+                                    Password = Helpers.HashPassword(a.Password, uid),
+                                    userID = uid
                                 };
-                                chats.AddChat(savedmessages);
-                                chats.Save(); //save it
+
+                                File.WriteAllText("data/auth/" + a.EMail, JsonConvert.SerializeObject(loginCredentials));
+
+                                UserProfile up = new() { name = a.EMail.Split("@")[0].Split(".")[0] };
+                                UserProfile.Create(uid, up);
+
+                                UserChatsList? chats = await UserChatsList.Get(uid); //get new user's chats list
+                                if (chats != null)
+                                {
+                                    ChatItem savedmessages = new()
+                                    { //automatically add saved messages for the user.
+                                        user = uid,
+                                        type = "user",
+                                        chatid = uid + "-" + uid
+                                    };
+                                    chats.AddChat(savedmessages);
+                                    chats.Save(); //save it
+                                }
+                                else
+                                {
+                                    Console.WriteLine("Signup chatslist was null!!!"); //log if weirdo
+                                }
+                                //Done, now login
+                                var session = UserSession.CreateSession(uid);
+
+                                res = JsonConvert.SerializeObject(session);
                             }
                             else
                             {
-                                Console.WriteLine("Signup chatslist was null!!!"); //log if weirdo
+                                statuscode = 411;
+                                res = JsonConvert.SerializeObject(new ServerResponse("error", "WPFORMAT", "Password format wrong."));
                             }
-                            //Done, now login
-                            var session = UserSession.CreateSession(uid);
-
-                            res = JsonConvert.SerializeObject(session);
                         }
                         else
                         {
                             statuscode = 411;
-                            res = JsonConvert.SerializeObject(new ServerResponse("error", "WPFORMAT", "Password format wrong."));
+                            res = JsonConvert.SerializeObject(new ServerResponse("error", "WEFORMAT", "Invalid E-Mail."));
                         }
                     }
                     else
                     {
-                        statuscode = 411;
-                        res = JsonConvert.SerializeObject(new ServerResponse("error", "WEFORMAT", "Invalid E-Mail."));
+                        statuscode = 401;
+                        res = JsonConvert.SerializeObject(new ServerResponse("error", "USEREXISTS", "User already exists."));
                     }
+
                 }
                 else
                 {
-                    statuscode = 401;
-                    res = JsonConvert.SerializeObject(new ServerResponse("error", "USEREXISTS", "User already exists."));
+                    statuscode = 411;
+                    res = JsonConvert.SerializeObject(new ServerResponse("error"));
                 }
-
-            }
-            else
-            {
-                statuscode = 411;
-                res = JsonConvert.SerializeObject(new ServerResponse("error"));
             }
         }
         else if (action == "login")
