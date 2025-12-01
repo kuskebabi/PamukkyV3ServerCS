@@ -27,12 +27,12 @@ class Notifications : ConcurrentDictionary<string, UserNotifications>
 }
 
 /// <summary>
-/// Class to hold notifications of a user.
+/// Class to hold notifications for user's all sessions.
 /// </summary>
 class UserNotifications : ConcurrentDictionary<string, MessageNotification>
 {
     [JsonIgnore]
-    public Dictionary<string, UserNotifications> notificationsForDevices = new();
+    public Dictionary<string, UserNotifications> notificationsForSessions = new();
 
 
     /// <summary>
@@ -42,16 +42,49 @@ class UserNotifications : ConcurrentDictionary<string, MessageNotification>
     /// <returns>UserNotifications that the device didn't recieve.</returns>
     public UserNotifications GetNotifications(string token)
     {
-        if (!notificationsForDevices.ContainsKey(token)) notificationsForDevices[token] = new();
-        return notificationsForDevices[token];
+        if (!notificationsForSessions.ContainsKey(token)) notificationsForSessions[token] = new();
+        return notificationsForSessions[token];
     }
 
-    public void AddNotification(MessageNotification notif)
+    /// <summary>
+    /// Pushes a notification to all sessions of user. It will replace older notification if they have same key but EditNotification should be used instead for that.
+    /// </summary>
+    /// <param name="notif">Notification</param>
+    /// <param name="key">Key for the notification, useful for editing or deleting.</param>
+    public void AddNotification(MessageNotification notif, string? key = null)
     {
-        string key = DateTime.Now.Ticks.ToString();
-        foreach (UserNotifications deviceNotifications in notificationsForDevices.Values)
+        if (key == null) key = DateTime.Now.Ticks.ToString();
+        foreach (UserNotifications sessionNotifications in notificationsForSessions.Values)
         {
-            deviceNotifications[key] = notif;
+            sessionNotifications[key] = notif;
+        }
+    }
+
+    /// <summary>
+    /// Replaces a notification with it's key. This will not replace what active sessions has recieved. If notification doesn't exist, this will be ignored.
+    /// </summary>
+    /// <param name="notif">Notification</param>
+    /// <param name="key">Key of the notification</param>
+    public void EditNotification(MessageNotification notif, string key)
+    {
+        foreach (UserNotifications sessionNotifications in notificationsForSessions.Values)
+        {
+            if (sessionNotifications.ContainsKey(key))
+            {
+                sessionNotifications[key] = notif;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Removes a notification with it's key. This will not remove what active sessions has recieved. If notification doesn't exist, this will be ignored.
+    /// </summary>
+    /// <param name="key">Key of the notification</param>
+    public void RemoveNotification(string key)
+    {
+        foreach (UserNotifications sessionNotifications in notificationsForSessions.Values)
+        {
+            sessionNotifications.Remove(key, out _);
         }
     }
 }

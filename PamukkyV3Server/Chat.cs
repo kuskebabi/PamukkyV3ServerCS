@@ -877,7 +877,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
                     UserConfig? uc = await UserConfig.Get(member);
                     if (uc != null && uc.CanSendNotification(chatID, message.mentionUIDs.Contains(member) || message.mentionUIDs.Contains("[CHAT]")))
                     {
-                        Notifications.Get(member).AddNotification(notification);
+                        Notifications.Get(member).AddNotification(notification, chatID + "/" + id);
                     }
                 }
             }
@@ -885,7 +885,7 @@ class Chat : OrderedDictionary<string, ChatMessage>
 
     }
 
-    public void EditMessage(string msgID, string newContent, DateTime? editTime = null)
+    public async void EditMessage(string msgID, string newContent, DateTime? editTime = null)
     {
         if (!ContainsKey(msgID)) return;
 
@@ -915,6 +915,20 @@ class Chat : OrderedDictionary<string, ChatMessage>
         update["editTime"] = editTime;
         update["id"] = msgID;
         AddUpdate(update);
+
+        // Edit notifications for members
+        var notification = new MessageNotification()
+        {
+            user = ShortProfile.FromProfile(await UserProfile.Get(message.senderUID)), //Probably would stay like this
+            userid = message.senderUID,
+            content = message.content,
+            chatid = chatID
+        };
+
+        foreach (string member in group.members.Keys)
+        {
+            Notifications.Get(member).EditNotification(notification, chatID + "/" + msgID);
+        }
     }
 
     /// <summary>
@@ -929,6 +943,12 @@ class Chat : OrderedDictionary<string, ChatMessage>
             update["event"] = "DELETED";
             update["id"] = msgID;
             AddUpdate(update);
+
+            // Remove notification from members
+            foreach (string member in group.members.Keys)
+            {
+                Notifications.Get(member).RemoveNotification(chatID + "/" + msgID);
+            }
         }
     }
 
@@ -1012,6 +1032,9 @@ class Chat : OrderedDictionary<string, ChatMessage>
             update["event"] = "READ";
             update["readTime"] = readTime;
             AddUpdate(update);
+
+            // Remove notification from user
+            Notifications.Get(userID).RemoveNotification(chatID + "/" + msgID);
         }
     }
 
